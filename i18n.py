@@ -351,4 +351,29 @@ EN = {
     "Mis à jour récemment": "Recently updated", "Plus petits d'abord": "Smallest first",
     "Plus gros d'abord": "Largest first", "Installés d'abord": "Installed first",
     "AJOUTÉ LE": "ADDED", "MIS À JOUR": "UPDATED",
+    "Bibliothèques de ports inutilisées": "Unused port libraries",
+    "Bibliothèques de PortMaster (runtimes .squashfs) qu'aucun port de la carte n'utilise. "
+    "Le catalogue PortMaster les remet si un port installé plus tard en a besoin.":
+        "PortMaster libraries (.squashfs runtimes) that no port on the card uses. "
+        "The PortMaster catalogue adds them back if a port installed later needs them.",
+    "bibliothèque manquante": "missing library",
+    "Les bibliothèques manquantes sont nécessaires pour lancer des ports déjà installés.":
+        "The missing libraries are needed to launch ports that are already installed.",
+    "{n} bibliothèque ajoutée": "{n} library added", "{n} bibliothèques ajoutées": "{n} libraries added",
+    "Installation de {n} bibliothèque": "Installing {n} library",
+    "Installation de {n} bibliothèques": "Installing {n} libraries",
+    "AJOUTER LES FICHIERS DU JEU…": "ADD GAME FILES…",
+    "Copie les fichiers du jeu original (acheté ou téléchargé) dans le port":
+        "Copies the original game files (bought or downloaded) into the port",
+    "Ajouter les fichiers du jeu…": "Add game files…", "Fichiers du jeu": "Game files",
+    "Les fichiers seront copiés dans {folder}.": "The files will be copied to {folder}.",
+    "Choisis le dossier du jeu original (tout son contenu est copié) ou seulement certains fichiers, "
+    "comme le demandent les instructions :":
+        "Choose the original game folder (all its content is copied) or only some files, "
+        "as the instructions say:",
+    "FICHIERS…": "FILES…", "DOSSIER…": "FOLDER…",
+    "Dossier du jeu original": "Original game folder", "Fichiers du jeu original": "Original game files",
+    "{n} fichier copié": "{n} file copied", "{n} fichiers copiés": "{n} files copied",
+    "Certains fichiers n'ont pas pu être copiés :": "Some files could not be copied:",
+    "Fichiers du jeu : {name}": "Game files: {name}",
 }

@@ -404,6 +404,9 @@ class App(ToolsMixin, BaseTk):
                                       command=lambda: self.toggle_favorites(None))
         self.meta = tk.Frame(f, bg=T.PANEL)
         self.meta.pack(fill="x", pady=(10, 6))
+        self.detail_port_files = PixelButton(f, _("AJOUTER LES FICHIERS DU JEU…"), icon="plus",
+                                             command=self.add_port_files)
+        Tooltip(self.detail_port_files, _("Copie les fichiers du jeu original (acheté ou téléchargé) dans le port"))
 
         self.desc = tk.Text(f, wrap="word", bg=T.PANEL, fg=T.TEXT, font=T.F["small"], relief="flat", height=1,
                             highlightthickness=0, bd=0, cursor="arrow", spacing2=2, state="disabled")
@@ -826,6 +829,10 @@ class App(ToolsMixin, BaseTk):
         else:
             self.detail_fav.pack_forget()
             self.detail_edit.pack_forget()
+        if len(sel) == 1 and self.needs_port_files(sel[0]):
+            self.detail_port_files.pack(anchor="w", pady=(0, 8), before=self.desc)
+        else:
+            self.detail_port_files.pack_forget()
         if len(sel) != 1:
             self.chip.configure(text="", image="")
             if sel:

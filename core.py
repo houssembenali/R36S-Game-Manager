@@ -301,6 +301,21 @@ def port_dir(path):
     return None
 
 
+def port_dirs(path):
+    """Tous les dossiers d'un port : son dossier de données + les autres dossiers listés dans son port.json."""
+    main = port_dir(path)
+    if not main:
+        return []
+    folder = os.path.dirname(path)
+    items = port_info(path).get("items") or []
+    extra = [os.path.join(folder, i.strip("/")) for i in items if i.endswith("/")]
+    out = {os.path.normcase(main): main}
+    for d in extra:
+        if os.path.isdir(d) and os.path.basename(d).lower() not in ("portmaster", "autoinstall"):
+            out.setdefault(os.path.normcase(d), d)
+    return list(out.values())
+
+
 def primary_rank(path):
     ext = os.path.splitext(path)[1].lower()
     return PRIMARY_EXT.index(ext) if ext in PRIMARY_EXT else len(PRIMARY_EXT)
@@ -455,9 +470,7 @@ def game_files(game):
     if os.path.isdir(game.path):
         return [game.path]
     files = [game.path] + components(game.path) + siblings(game.path)
-    pdir = port_dir(game.path)
-    if pdir:
-        files.append(pdir)
+    files += port_dirs(game.path)
     unique = {}
     for p in files:
         unique.setdefault(os.path.normcase(os.path.normpath(p)), p)
@@ -550,9 +563,7 @@ def files_to_delete(game, system_games, with_saves=False):
         if not same(g.path, game.path):  # même jeu (même chargé deux fois) : pas protégé
             protected.add(os.path.normcase(g.path))
             protected.update(os.path.normcase(p) for p in g.media.values())
-            pdir = port_dir(g.path)
-            if pdir:
-                protected.add(os.path.normcase(pdir))
+            protected.update(os.path.normcase(d) for d in port_dirs(g.path))
     files = game_files(game) + [p for p in game.media.values() if os.path.isfile(p)]
     files += fallback_media(game)
     if with_saves:

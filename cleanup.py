@@ -31,6 +31,9 @@ def categories():
         "portdir": (_("Dossiers de ports sans script"),
                     _("Dossiers de ports PortMaster dont le jeu a été supprimé (son script .sh n'existe plus). "
                       "Ils peuvent contenir les fichiers d'un jeu que tu voudrais réinstaller."), False),
+        "portlib": (_("Bibliothèques de ports inutilisées"),
+                    _("Bibliothèques de PortMaster (runtimes .squashfs) qu'aucun port de la carte n'utilise. "
+                      "Le catalogue PortMaster les remet si un port installé plus tard en a besoin."), False),
         "oldlist": (_("Anciennes copies de gamelist"),
                     "gamelist.xml.old, gamelist.backup.xml, gamelist.xml.bak…", False),
     }
@@ -144,6 +147,7 @@ def scan(root, games_by_system):
             issues += _old_lists(system, sysdir)
             if system.lower() == "ports":
                 issues += [Issue("portdir", system, d, core.path_size(d)) for d in ports.orphan_dirs(root, games)]
+                issues += [Issue("portlib", system, p, core.path_size(p)) for p in ports.unused_runtimes(root)]
         except OSError:
             continue
     return issues
@@ -170,6 +174,8 @@ def clean(root, issues, games_by_system, progress=None, cancel=None):
                 removed_games.append(it.game)
         else:
             errors += _remove_file(it.path)
+            if it.kind == "portlib":
+                errors += _remove_file(it.path + ".md5")
     if progress and entries:
         progress(done, "Mise à jour des gamelist.xml…")
     for sysdir, paths in entries.items():

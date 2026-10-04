@@ -82,6 +82,8 @@ class ToolsMixin:
         m.add_command(label="  " + (_("Retirer des favoris") if fav else _("Ajouter aux favoris")),
                       command=lambda: self.toggle_favorites(games))
         m.add_command(label="  " + _("Compléter la fiche depuis internet"), command=lambda: self.enrich_games(games))
+        if one and self.needs_port_files(games[0]):
+            m.add_command(label="  " + _("Ajouter les fichiers du jeu…"), command=self.add_port_files)
         move = self._menu()
         current = {g.system for g in games}
         for s in sorted(core.list_systems(self.root_path), key=lambda k: systems.name(k).lower()):
@@ -418,30 +420,40 @@ class ToolsMixin:
                                lambda report, cancel: ports.load_catalog(), show)
 
     def port_updates(self):
-        """Ports installés dont le catalogue propose une version plus récente."""
+        """Ports installés dont le catalogue propose une version plus récente, et bibliothèques
+        manquantes aux ports installés (sans elles le port ne se lance pas)."""
         root = self.root_path
 
-        def show(catalog):
+        def check(report, cancel):
+            catalog = ports.load_catalog(force=True)
+            return catalog, ports.missing_installed_runtimes(root)
+
+        def show(result):
+            catalog, libs = result
             waiting = ports.pending(root)
             found = [p for p in ports.updates(root, catalog) if p.key not in waiting]
-            if not found:
+            if not found and not libs:
                 info(self, _("Mises à jour des ports"), _("Tous les ports installés sont à jour."))
                 return
             items = [(p.title, _("version du {date}", date=p.updated) if p.updated else "", True, p.size)
                      for p in found]
-            chosen = ChecklistDialog(self, _("Mises à jour des ports"), "download",
-                                     _("Une version plus récente de ces ports existe. La nouvelle version remplace "
-                                       "l'ancienne au prochain lancement de PortMaster ; les fichiers du jeu et "
-                                       "les sauvegardes sont gardés."), items, _("METTRE À JOUR")).show()
+            items += [(rt[0], _("bibliothèque manquante"), True, rt[3]) for rt in libs]
+            text = _("Une version plus récente de ces ports existe. La nouvelle version remplace l'ancienne au "
+                     "prochain lancement de PortMaster ; les fichiers du jeu et les sauvegardes sont gardés.")
+            if libs:
+                text += " " + _("Les bibliothèques manquantes sont nécessaires pour lancer des ports déjà installés.")
+            chosen = ChecklistDialog(self, _("Mises à jour des ports"), "download", text, items,
+                                     _("METTRE À JOUR")).show()
             if chosen:
-                self.install_ports([found[i] for i in chosen])
-        self.run_in_background(_("Mises à jour des ports"), "download", None,
-                               lambda report, cancel: ports.load_catalog(force=True), show)
+                self.install_ports([found[i] for i in chosen if i < len(found)],
+                                   [libs[i - len(found)] for i in chosen if i >= len(found)])
+        self.run_in_background(_("Mises à jour des ports"), "download", None, check, show)
 
-    def install_ports(self, chosen):
+    def install_ports(self, chosen, extra_runtimes=()):
         """Dépose les ports dans autoinstall et ajoute les runtimes manquants (la console n'a pas de Wi-Fi)."""
         root = self.root_path
         runtimes = ports.missing_runtimes(root, chosen)
+        runtimes += [rt for rt in extra_runtimes if rt[0] not in {r[0] for r in runtimes}]
         jobs = [(p.title, p.size, lambda r, c, p=p: ports.download(root, p, r, c)) for p in chosen]
         jobs += [(rt[0], rt[3], lambda r, c, rt=rt: ports.download_runtime(root, rt, r, c)) for rt in runtimes]
 
@@ -462,7 +474,7 @@ class ToolsMixin:
         def done(result):
             ok, errors = result
             self.refresh_usage()
-            if ok:
+            if ok and chosen:
                 text = _n(len(chosen), "{n} port est prêt à être installé.", "{n} ports sont prêts à être installés.")
                 if runtimes:
                     text += "\n" + _n(len(runtimes), "{n} bibliothèque nécessaire a aussi été ajoutée.",
@@ -470,10 +482,75 @@ class ToolsMixin:
                 info(self, _("Ports PortMaster"), text,
                      _("Remets la carte dans la console et lance PortMaster (dans Ports ou Options) : il installe "
                        "les ports déposés, qui apparaissent ensuite dans la liste Ports."))
+            elif ok:
+                self.flash(_n(ok, "{n} bibliothèque ajoutée", "{n} bibliothèques ajoutées"), T.GREEN)
             self._errors(errors, _("Certains téléchargements ont échoué :"))
 
-        self.run_in_background(_("Installation des ports"), "download", len(jobs), work, done,
-                               _n(len(chosen), "Installation de {n} port", "Installation de {n} ports"))
+        label = (_n(len(chosen), "Installation de {n} port", "Installation de {n} ports") if chosen
+                 else _n(len(runtimes), "Installation de {n} bibliothèque", "Installation de {n} bibliothèques"))
+        self.run_in_background(_("Installation des ports"), "download", len(jobs), work, done, label)
+
+    @staticmethod
+    def needs_port_files(game):
+        """Port qui demande les fichiers du jeu original (pas « prêt à jouer »)."""
+        if game.system.lower() != "ports":
+            return False
+        req = ports.requirements(game)
+        return bool(req and not req[0] and core.port_dir(game.path))
+
+    def add_port_files(self):
+        """Copie les fichiers du jeu original (dossier entier ou fichiers choisis) dans le dossier prévu du port."""
+        if len(self.selection) != 1:
+            return
+        game = self.selection[0]
+        target = ports.files_target(game)
+        if not target:
+            return
+        root = self.root_path
+        where = os.path.relpath(target, root).replace(os.sep, "/")
+        choice = _dialog(self, _("Fichiers du jeu"),
+                         _("Les fichiers seront copiés dans {folder}.", folder=where) + "\n"
+                         + _("Choisis le dossier du jeu original (tout son contenu est copié) ou seulement "
+                             "certains fichiers, comme le demandent les instructions :"),
+                         ports.requirements(game)[1],
+                         [(_("ANNULER"), "normal", None), (_("FICHIERS…"), "normal", "files"),
+                          (_("DOSSIER…"), "normal", "dir")], T.CYAN, "folder")
+        if choice == "dir":
+            source = filedialog.askdirectory(parent=self, title=_("Dossier du jeu original"))
+            files = ports.folder_files(source) if source else []
+        elif choice == "files":
+            picked = filedialog.askopenfilenames(parent=self, title=_("Fichiers du jeu original"))
+            files = [(p, os.path.basename(p)) for p in picked]
+        else:
+            return
+        if not files:
+            return
+        size = sum(core.path_size(p) for p, _rel in files)
+
+        def work(report, cancel):
+            errors, copied = [], 0
+            for i, (src, rel) in enumerate(files):
+                if cancel.is_set():
+                    break
+                report(i, rel)
+                try:
+                    journal.copy(src, os.path.join(target, rel))
+                    copied += 1
+                except OSError as e:
+                    errors.append(f"{rel} : {e}")
+            return copied, errors
+
+        def done(result):
+            copied, errors = result
+            core.clear_cache()
+            self.refresh_usage()
+            self.show_details()
+            self.flash(_n(copied, "{n} fichier copié", "{n} fichiers copiés") + f"  ·  {human(size)}  ·  {where}",
+                       T.GREEN)
+            self._errors(errors, _("Certains fichiers n'ont pas pu être copiés :"))
+
+        self.run_in_background(_("Fichiers du jeu"), "copy", len(files), work, done,
+                               _("Fichiers du jeu : {name}", name=game.name))
 
     # ------------------------------------------------------------ sauvegardes
     def backup_saves(self):
