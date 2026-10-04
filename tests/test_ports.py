@@ -204,3 +204,41 @@ def test_download_checks_md5(card, monkeypatch):
         ports._fetch("u", dest, md5="0" * 32)
     assert not os.path.exists(dest) and not os.path.exists(dest + ".part")
     assert ports._fetch("u", dest, md5=hashlib.md5(b"zipdata").hexdigest()) and os.path.isfile(dest)
+
+
+def test_popularity_and_recommendations(card, tmp_path, monkeypatch):
+    monkeypatch.setattr(ports, "STATS_CACHE", str(tmp_path / "stats.json"))
+    monkeypatch.setattr(ports.net, "get", lambda url, timeout=30: json.dumps(
+        {"ports": {"sprout.zip": 1234, "other.zip": 5}}).encode())
+    entry = catalog_entry()
+    entry["attr"]["title"] = "Half-Life"
+    catalog = ports._parse({"ports": {"sprout.zip": entry, "other.zip": catalog_entry()}})
+    ports.add_popularity(catalog, {"Windows": {"halflife": [4.4, 273, "1", "1998", "Tir"]}})
+    hl = next(p for p in catalog if p.zip == "sprout.zip")
+    assert (hl.downloads, hl.rating, hl.votes) == (1234, 4.4, 273)
+    g = add_port(card)  # genres simulation, rpg
+    g.info["playcount"] = "7"
+    likes = ports.taste([g])
+    assert likes == {"simulation": 7, "rpg": 7}
+    other = next(p for p in catalog if p.zip == "other.zip")  # genre rpg mais peu téléchargé
+    assert ports.recommend_score(other, likes) > ports.recommend_score(other, {})
+
+
+def test_port_readme_launchers_and_keys(card):
+    import gptk
+    g = add_port(card)
+    write(card, "ports/sprout/README.md", "# Sprout")
+    assert ports.readme(g).endswith("README.md")
+    write(card, "ports/Sprout Extra.sh", "#!/bin/bash\n")
+    data = dict(PORT_JSON, items=["Sprout.sh", "Sprout Extra.sh", "sprout/"])
+    write(card, "ports/sprout/port.json", json.dumps(data))
+    core.clear_cache()
+    games = core.load_all(card)["ports"]
+    grouped = ports.group_launchers(games)
+    main = next(x for x in grouped if x.stem == "Sprout")
+    assert [v.stem for v in main.variants] == ["Sprout Extra"] and all(x.stem != "Sprout Extra" for x in grouped)
+    path = write(card, "ports/sprout/sprout.gptk", "# touches\nback = esc\na = z\nstart = enter  # menu\n")
+    assert gptk.files(main) == [path]
+    assert gptk.ordered(gptk.read(path)) == [("a", "z"), ("start", "enter"), ("back", "esc")]
+    gptk.write(path, {"a": "space", "x": "c"})
+    assert open(path, encoding="utf-8").read() == "# touches\nback = esc\na = space\nstart = enter  # menu\nx = c\n"

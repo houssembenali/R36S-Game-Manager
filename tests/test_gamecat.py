@@ -97,7 +97,9 @@ LAUNCHBOX_XML = b"""<?xml version="1.0"?>
     <CommunityRating>4.61</CommunityRating><CommunityRatingCount>378</CommunityRatingCount><DatabaseID>7</DatabaseID></Game>
   <Game><Name>Obscure Game</Name><Platform>Nintendo Game Boy Advance</Platform>
     <CommunityRating>5</CommunityRating><CommunityRatingCount>1</CommunityRatingCount><DatabaseID>8</DatabaseID></Game>
-  <Game><Name>Halo</Name><Platform>Windows</Platform>
+  <Game><Name>Halo</Name><Platform>Xbox</Platform>
+    <CommunityRating>4</CommunityRating><CommunityRatingCount>99</CommunityRatingCount><DatabaseID>10</DatabaseID></Game>
+  <Game><Name>Half-Life</Name><Platform>Windows</Platform>
     <CommunityRating>4</CommunityRating><CommunityRatingCount>99</CommunityRatingCount><DatabaseID>9</DatabaseID></Game>
   <GameAlternateName><AlternateName>Castlevania: Akatsuki no Minuet</AlternateName><DatabaseID>7</DatabaseID></GameAlternateName>
   <GameImage><DatabaseID>7</DatabaseID><FileName>x.png</FileName></GameImage>
@@ -106,7 +108,7 @@ LAUNCHBOX_XML = b"""<?xml version="1.0"?>
 
 def test_ratings_merge_versions_and_rank_by_score():
     table = gamecat.parse_launchbox(io.BytesIO(LAUNCHBOX_XML))
-    assert set(table) == {"Nintendo Game Boy Advance"}  # les plateformes hors R36S sont ignorées
+    assert set(table) == {"Nintendo Game Boy Advance", "Windows"}  # Windows : jeux originaux des ports
     entries = [gamecat.Entry("Castlevania - Akatsuki no Minuet", "gba", "castlevaniaakatsukinominuet",
                              ["Castlevania - Akatsuki no Minuet (Japan)"], ["jp"], year="2003"),
                gamecat.Entry("Castlevania - Aria of Sorrow", "gba", "castlevaniaariaofsorrow",

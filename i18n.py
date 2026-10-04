@@ -506,6 +506,17 @@ EN = {
     "COPIER": "COPY", "{n} fichier copié.": "{n} file copied.", "{n} fichiers copiés.": "{n} files copied.",
     "Relance la copie pour finir : elle reprendra où elle s'est arrêtée.":
         "Run the copy again to finish: it will resume where it stopped.",
+    # ports : popularité, touches, notice, lanceurs
+    "Plus téléchargés": "Most downloaded", "Recommandés pour toi": "Recommended for you", "TÉLÉCH.": "DOWNL.",
+    "Téléchargé {n} fois": "Downloaded {n} times",
+    "Jeu original : {rating} / 5 ({votes} votes)": "Original game: {rating} / 5 ({votes} votes)",
+    "Popularité et notes…": "Popularity and ratings…", "TOUCHES…": "KEYS…", "NOTICE": "README",
+    "Lanceurs de ce port : {names}": "Launchers of this port: {names}", "Touches": "Keys",
+    "Touches : {name}": "Keys: {name}",
+    "Chaque bouton de la console envoie une touche du clavier au jeu. Choisis la touche dans la liste ou écris-la. "
+    "Fichier : {file}": "Each console button sends a keyboard key to the game. Pick the key from the list or type "
+                        "it. File: {file}",
+    "{n} touche changée": "{n} key changed", "{n} touches changées": "{n} keys changed",
     # noms des jeux d'arcade
     "Vrais noms des jeux d'arcade…": "Real names of arcade games…", "Jeux d'arcade": "Arcade games",
     "Tous les jeux d'arcade ont déjà un vrai nom.": "All arcade games already have a real name.",

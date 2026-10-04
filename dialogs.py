@@ -9,8 +9,10 @@ from tkinter import filedialog, ttk
 from PIL import Image, ImageGrab, ImageTk
 
 import gamecat
+import gptk
 import icons
 import net
+import ports
 import regions
 import scraper
 import settings
@@ -468,9 +470,10 @@ class PortCatalogDialog(RetroWindow):
     Résultat : liste des Port cochés (None si annulé)."""
     PREVIEW = (300, 200)
 
-    def __init__(self, parent, catalog, have, waiting):
+    def __init__(self, parent, catalog, have, waiting, likes=None):
         super().__init__(parent, _("Catalogue PortMaster"), "download")
         self.catalog, self.have, self.waiting = catalog, have, waiting
+        self.likes = likes or {}  # genres que tu joues (recommandations)
         self.by_key = {p.key: p for p in catalog}
         self.marked, self.shots, self.shown = set(), {}, None
         # badge « nouveau » : ports arrivés depuis la dernière ouverture du catalogue
@@ -508,6 +511,10 @@ class PortCatalogDialog(RetroWindow):
         state_rank = {"update": 0, "installed": 1}
         self.sorts = [
             ("name", _("Nom (A → Z)"), lambda p: p.title.lower(), False, "#0"),
+            ("popular", _("Plus téléchargés"), lambda p: p.downloads, True, "downloads"),
+            ("rating", _("Meilleures notes"), lambda p: (p.rating * p.votes + 30) / (p.votes + 10) if p.votes
+             else 0, True, "rating"),
+            ("recommended", _("Recommandés pour toi"), lambda p: ports.recommend_score(p, self.likes), True, ""),
             ("name_desc", _("Nom (Z → A)"), lambda p: p.title.lower(), True, "#0"),
             ("added", _("Ajoutés récemment"), lambda p: p.added, True, "date"),
             ("added_old", _("Ajoutés il y a longtemps"), lambda p: p.added, False, "date"),
@@ -538,12 +545,12 @@ class PortCatalogDialog(RetroWindow):
         main.pack(fill="both", expand=True)
         frame = tk.Frame(main, bg=T.PANEL)
         frame.pack(side="left", fill="both", expand=True)
-        self.tree = ttk.Treeview(frame, columns=("genre", "date", "size", "state"), show="tree headings", height=16,
-                                 selectmode="browse")
-        self.headings = {"#0": _("PORT"), "genre": _("GENRE"), "date": _("AJOUTÉ LE"), "size": _("TAILLE"),
-                         "state": _("ÉTAT")}
-        for col, width, anchor in (("#0", 280, "w"), ("genre", 140, "w"), ("date", 100, "w"), ("size", 80, "e"),
-                                   ("state", 110, "w")):
+        self.tree = ttk.Treeview(frame, columns=("downloads", "rating", "genre", "date", "size", "state"),
+                                 show="tree headings", height=16, selectmode="browse")
+        self.headings = {"#0": _("PORT"), "downloads": _("TÉLÉCH."), "rating": _("NOTE"), "genre": _("GENRE"),
+                         "date": _("AJOUTÉ LE"), "size": _("TAILLE"), "state": _("ÉTAT")}
+        for col, width, anchor in (("#0", 250, "w"), ("downloads", 80, "e"), ("rating", 90, "w"),
+                                   ("genre", 120, "w"), ("date", 95, "w"), ("size", 75, "e"), ("state", 100, "w")):
             self.tree.heading(col, text=self.headings[col], anchor=anchor,
                               command=lambda c=col: self._sort_by_column(c))
             self.tree.column(col, width=width, anchor=anchor)
@@ -654,8 +661,9 @@ class PortCatalogDialog(RetroWindow):
                 continue
             text, tags = self._row(p)
             self.tree.insert("", "end", iid=p.key, text=text, tags=tags,
-                             values=(", ".join(p.genres[:2]), p.updated if date_updated else p.added,
-                                     human(p.size), self._state(p)[0]))
+                             values=(f"{p.downloads:,}".replace(",", " ") if p.downloads else "",
+                                     stars(p.rating) if p.votes else "", ", ".join(p.genres[:2]),
+                                     p.updated if date_updated else p.added, human(p.size), self._state(p)[0]))
         if self.shown and self.tree.exists(self.shown):
             self.tree.selection_set(self.shown)
             self.tree.see(self.shown)
@@ -712,6 +720,11 @@ class PortCatalogDialog(RetroWindow):
             t.insert("end", _("Porté par : {names}", names=", ".join(p.porter)) + "\n", "muted")
         if p.updated:
             t.insert("end", _("Mis à jour le {date}", date=p.updated) + "\n", "muted")
+        if p.downloads:
+            t.insert("end", _("Téléchargé {n} fois", n=f"{p.downloads:,}".replace(",", " ")) + "\n", "muted")
+        if p.votes:
+            t.insert("end", _("Jeu original : {rating} / 5 ({votes} votes)", rating=f"{p.rating:.1f}".replace(".", ","),
+                              votes=p.votes) + "\n", "muted")
         t.configure(state="disabled")
         if p.stores:
             self.store_btn.set_text(_("VOIR SUR {store}", store=p.stores[0][0].upper()))
@@ -1325,4 +1338,31 @@ class CardMoveDialog(RetroWindow):
 
     def _close(self, action):
         self.result = action
+        self.destroy()
+
+
+class KeysDialog(RetroWindow):
+    """Touches d'un port (.gptk) : bouton de la console -> touche du clavier. Résultat : {bouton: touche}
+    des touches changées (None si annulé)."""
+    def __init__(self, parent, name, path, mapping):
+        super().__init__(parent, _("Touches : {name}", name=name), "gamepad")
+        tk.Label(self.body, text=_("Chaque bouton de la console envoie une touche du clavier au jeu. Choisis la "
+                                   "touche dans la liste ou écris-la. Fichier : {file}", file=os.path.basename(path)),
+                 font=T.F["body"], fg=T.TEXT, bg=T.PANEL, justify="left", wraplength=620,
+                 anchor="w").pack(fill="x", pady=(0, 10))
+        inner = scroll_area(self.body, min(460, 34 * len(mapping) + 10))
+        self.mapping, self.vars = mapping, {}
+        for button, key in mapping:
+            row = tk.Frame(inner, bg=T.PANEL2, padx=10, pady=3)
+            row.pack(fill="x", pady=1)
+            tk.Label(row, text=gptk.LABELS.get(button, button), font=T.F["body"], fg=T.CYAN, bg=T.PANEL2, width=14,
+                     anchor="w").pack(side="left")
+            var = tk.StringVar(value=key)
+            ttk.Combobox(row, textvariable=var, values=gptk.KEYS, width=24, font=T.F["body"]).pack(side="left")
+            self.vars[button] = var
+        self.buttons(_("ENREGISTRER"), "save")
+
+    def ok(self):
+        old = dict(self.mapping)
+        self.result = {b: v.get().strip() for b, v in self.vars.items() if v.get().strip() != old[b]}
         self.destroy()

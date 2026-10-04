@@ -32,6 +32,15 @@ def data(*parts):
     return os.path.join(DATA, *parts)
 
 
+def open_file(path):
+    """Ouvre un fichier avec le programme associé (notice d'un port…)."""
+    import subprocess
+    if WINDOWS:
+        os.startfile(path)  # noqa: S606 - fichier choisi par le programme sur la carte
+    else:
+        subprocess.Popen(["xdg-open", path])
+
+
 def reveal(path):
     """Montre un fichier dans l'explorateur de fichiers (ou ouvre un dossier)."""
     if WINDOWS:

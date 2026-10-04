@@ -18,6 +18,7 @@ import chd
 import core
 import dupes
 import gamecat
+import gptk
 import health
 import i18n
 import icons
@@ -36,7 +37,7 @@ import systems
 import themes
 import theme as T
 from dialogs import (CardMoveDialog, ChecklistDialog, EditDialog, GameCatalogDialog, HistoryDialog, ImportDialog,
-                     PortCatalogDialog, ReportDialog, StatsDialog, ThemesDialog)
+                     KeysDialog, PortCatalogDialog, ReportDialog, StatsDialog, ThemesDialog)
 from i18n import _, _n
 from widgets import _dialog, human, info
 
@@ -812,12 +813,18 @@ class ToolsMixin:
         """Catalogue PortMaster : choisir des ports à installer depuis le PC."""
         root = self.root_path
 
+        likes = ports.taste(self.games.get("ports", []))
+
+        def load(report, cancel):
+            catalog = ports.load_catalog()
+            report(0, _("Popularité et notes…"))
+            return ports.add_popularity(catalog, gamecat.ratings())
+
         def show(catalog):
-            chosen = PortCatalogDialog(self, catalog, ports.installed(root), ports.pending(root)).show()
+            chosen = PortCatalogDialog(self, catalog, ports.installed(root), ports.pending(root), likes).show()
             if chosen:
                 self.install_ports(chosen)
-        self.run_in_background(_("Catalogue PortMaster"), "download", None,
-                               lambda report, cancel: ports.load_catalog(), show)
+        self.run_in_background(_("Catalogue PortMaster"), "download", None, load, show)
 
     def port_updates(self):
         """Ports installés dont le catalogue propose une version plus récente, et bibliothèques
@@ -902,6 +909,27 @@ class ToolsMixin:
                  else _("Mise à jour de PortMaster") if portmaster
                  else _n(len(runtimes), "Installation de {n} bibliothèque", "Installation de {n} bibliothèques"))
         self.run_in_background(_("Installation des ports"), "download", len(jobs), work, done, label)
+
+    def edit_port_keys(self):
+        """Touches du port (.gptk) : voir et changer la touche envoyée par chaque bouton."""
+        if len(self.selection) != 1:
+            return
+        game = self.selection[0]
+        files = gptk.files(game)
+        if not files:
+            return
+        path = files[0]
+        changes = KeysDialog(self, game.name, path, gptk.ordered(gptk.read(path))).show()
+        if not changes:
+            return
+
+        def work(report, cancel):
+            gptk.write(path, changes)
+
+        def done(_result):
+            self.show_details()
+            self.flash(_n(len(changes), "{n} touche changée", "{n} touches changées"), T.GREEN)
+        self.run_in_background(_("Touches"), "gamepad", None, work, done, _("Touches : {name}", name=game.name))
 
     def install_port_zips(self, files=None):
         """Dépose des ports déjà téléchargés (.zip d'itch.io, de Discord…) dans autoinstall."""

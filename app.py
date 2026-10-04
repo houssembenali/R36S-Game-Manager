@@ -15,6 +15,7 @@ import arcade
 import cleanup
 import core
 import filters
+import gptk
 import i18n
 import icons
 import journal
@@ -471,6 +472,9 @@ class App(ToolsMixin, BaseTk):
                                              command=self.add_port_files)
         Tooltip(self.detail_port_files, _("Copie les fichiers du jeu original (acheté ou téléchargé) dans le port"))
         self.detail_store = PixelButton(self.port_row, "", command=lambda: self.open_store(self._store_url))
+        self.detail_keys = PixelButton(self.port_row, _("TOUCHES…"), icon="gamepad", command=self.edit_port_keys)
+        self.detail_readme = PixelButton(self.port_row, _("NOTICE"), icon="edit",
+                                         command=lambda: paths.open_file(ports.readme(self.selection[0])))
         self._store_url = ""
 
         self.desc = tk.Text(f, wrap="word", bg=T.PANEL, fg=T.TEXT, font=T.F["small"], relief="flat", height=1,
@@ -671,6 +675,7 @@ class App(ToolsMixin, BaseTk):
         if words:
             games = [g for g in games if all(w in f"{g.name} {g.filename}".lower() for w in words)]
         games = filters.apply(games, self.filters)
+        games = ports.group_launchers(games)  # Quake 2 et ses extensions : une seule ligne
         key, reverse = SORTS[self.sort_id]
         games.sort(key=key, reverse=reverse)
         if self.current == DUP:  # les copies d'un même jeu côte à côte
@@ -956,17 +961,24 @@ class App(ToolsMixin, BaseTk):
 
     def _show_port_buttons(self, g):
         """Sous la fiche d'un port : « ajouter les fichiers du jeu » et « voir sur Steam/GOG/itch.io »."""
-        files = bool(g) and self.needs_port_files(g)
-        links = ports.store_links(g) if g and g.system.lower() == "ports" else []
-        self.detail_port_files.pack_forget()
-        self.detail_store.pack_forget()
+        is_port = bool(g) and g.system.lower() == "ports"
+        files = is_port and self.needs_port_files(g)
+        links = ports.store_links(g) if is_port else []
+        keys = is_port and bool(gptk.files(g))
+        notice = is_port and bool(ports.readme(g))
+        for w in (self.detail_port_files, self.detail_store, self.detail_keys, self.detail_readme):
+            w.pack_forget()
         if files:
             self.detail_port_files.pack(side="left", padx=(0, 8))
         if links:
             self._store_url = links[0][1]
             self.detail_store.set_text(_("VOIR SUR {store}", store=links[0][0].upper()))
-            self.detail_store.pack(side="left")
-        if files or links:
+            self.detail_store.pack(side="left", padx=(0, 8))
+        if keys:
+            self.detail_keys.pack(side="left", padx=(0, 8))
+        if notice:
+            self.detail_readme.pack(side="left")
+        if files or links or keys or notice:
             self.port_row.pack(fill="x", pady=(0, 8), before=self.desc)
         else:
             self.port_row.pack_forget()
@@ -995,6 +1007,15 @@ class App(ToolsMixin, BaseTk):
             parts.append((_("Le jeu original est payant.") + "\n", "file"))
         if porter:
             parts.append((_("Porté par : {names}", names=", ".join(porter)) + "\n", "file"))
+        variants = getattr(g, "variants", [])
+        if variants:
+            parts.append((_("Lanceurs de ce port : {names}", names=", ".join([g.name] + [v.name for v in variants]))
+                          + "\n", "file"))
+        files = gptk.files(g)
+        if files:
+            keys = gptk.ordered(gptk.read(files[0]))
+            parts.append((T.px(_("Touches")) + "\n", "head"))
+            parts += [(f"{gptk.LABELS.get(b, b):<10} → {k or '—'}\n", "file") for b, k in keys[:16]]
         dirs = core.port_dirs(g.path)
         if dirs:
             parts.append((_("Place sur la carte : {size} (dossier {folder}, fichiers du jeu compris).",
@@ -1157,7 +1178,14 @@ class App(ToolsMixin, BaseTk):
         if not sel:
             return
         with_saves = self.saves_var.get()
-        plan = [(g, core.files_to_delete(g, self.games.get(g.system, []), with_saves)) for g in sel]
+        plan, seen = [], set()
+        for g in sel:  # un port à plusieurs lanceurs part en entier (scripts + dossier)
+            group = [g] + list(getattr(g, "variants", []))
+            others = [x for x in self.games.get(g.system, []) if all(x is not m for m in group)]
+            for m in group:
+                files = [p for p in core.files_to_delete(m, others, with_saves) if os.path.normcase(p) not in seen]
+                seen.update(os.path.normcase(p) for p in files)
+                plan.append((m, files))
         nfiles = sum(len(f) for _g, f in plan)
         size = sum(core.path_size(p) for _g, files in plan for p in files)
         what = _("ROM, images, vidéos, sauvegardes") if with_saves else _("ROM, images, vidéos")
@@ -1179,7 +1207,8 @@ class App(ToolsMixin, BaseTk):
             return errors
 
         def done(errors):
-            self._forget_games(sel)
+            members = [m for m, _files in plan]
+            self._forget_games(members)
             gone = sum(1 for g in sel if not os.path.exists(g.path))
             self.flash(_n(gone, "{n} jeu supprimé", "{n} jeux supprimés") + "  ·  "
                        + _("{size} dans la corbeille", size=human(size)), T.GREEN)

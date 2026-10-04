@@ -56,6 +56,7 @@ LB_PLATFORMS = {
     "zxspectrum": "Sinclair ZX Spectrum",
     "neogeo": ("SNK Neo Geo MVS", "SNK Neo Geo AES", "Arcade"), "cps1": "Arcade", "cps2": "Arcade",
     "cps3": "Arcade", "fbneo": "Arcade", "arcade": "Arcade",
+    "ports": ("Windows", "Linux", "MS-DOS", "Android"),  # jeu original des ports PortMaster
 }
 
 
@@ -324,7 +325,7 @@ def has_free(system):
 # ---------------------------------------------------------------- notes et popularité
 
 def _ratings_path():
-    return os.path.join(CACHE_DIR, "launchbox-ratings-v2.json")  # v2 : plateformes d'arcade ajoutées
+    return os.path.join(CACHE_DIR, "launchbox-ratings-v3.json")  # v3 : arcade et PC (ports)
 
 
 def parse_launchbox(xml_file):

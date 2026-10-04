@@ -23,6 +23,8 @@ import paths
 
 CATALOG_URL = "https://github.com/PortsMaster/PortMaster-New/releases/latest/download/ports.json"
 GUI_RELEASE = "https://api.github.com/repos/PortsMaster/PortMaster-GUI/releases/latest"
+STATS_URL = "https://raw.githubusercontent.com/PortsMaster/PortMaster-Info/main/port_stats.json"
+STATS_CACHE = paths.data("cache", "portmaster-stats.json")
 IMAGE_URL = "https://raw.githubusercontent.com/PortsMaster/PortMaster-New/main/ports/{dir}/{file}"
 CACHE = paths.data("cache", "portmaster-ports.json")
 CACHE_HOURS = 12
@@ -53,6 +55,9 @@ class Port:
     stores: list = field(default_factory=list)  # [(boutique, lien)] où trouver le jeu original
     reqs: list = field(default_factory=list)    # exigences (« power », « 2gb »…)
     exp: bool = False                           # port expérimental
+    downloads: int = 0                          # nombre de téléchargements (popularité)
+    rating: float = 0.0                         # note du jeu original (LaunchBox), sur 5
+    votes: int = 0
 
     @property
     def unsuited(self):
@@ -137,6 +142,55 @@ def _read_catalog(force=False):
 def load_catalog(force=False):
     """Catalogue PortMaster : liste de Port."""
     return _parse(_read_catalog(force))
+
+
+def load_stats():
+    """{nom du zip: nombre de téléchargements} publié par PortMaster (gardé quelques heures)."""
+    fresh = os.path.isfile(STATS_CACHE) and time.time() - os.path.getmtime(STATS_CACHE) < CACHE_HOURS * 3600
+    if not fresh:
+        try:
+            data = net.get(STATS_URL, timeout=30)
+            os.makedirs(os.path.dirname(STATS_CACHE), exist_ok=True)
+            with open(STATS_CACHE, "wb") as f:
+                f.write(data)
+        except OSError:
+            pass
+    try:
+        with open(STATS_CACHE, encoding="utf-8") as f:
+            return {k.lower(): v for k, v in (json.load(f).get("ports") or {}).items() if isinstance(v, int)}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def add_popularity(catalog, table=None):
+    """Ajoute téléchargements et note du jeu original (LaunchBox, plateformes PC) aux ports."""
+    stats = load_stats()
+    found = {}
+    for platform in ("Android", "MS-DOS", "Linux", "Windows"):  # le dernier a le dernier mot
+        found.update((table or {}).get(platform, {}))
+    for p in catalog:
+        p.downloads = stats.get(p.key, 0)
+        hit = found.get(core.title_key(p.title))
+        if hit:
+            p.rating, p.votes = hit[0], hit[1]
+    return catalog
+
+
+def taste(games):
+    """{genre: poids} d'après les ports auxquels tu joues (nombre de parties), pour les recommandations."""
+    out = {}
+    for g in games:
+        if g.playcount:
+            for genre in (core.port_info(g.path).get("attr") or {}).get("genres") or []:
+                out[genre.lower()] = out.get(genre.lower(), 0) + g.playcount
+    return out
+
+
+def recommend_score(port, likes):
+    """Plus c'est haut, plus le port te correspond : genres que tu joues × popularité."""
+    import math
+    match = sum(likes.get(g.lower(), 0) for g in port.genres)
+    return (1 + match) * math.log10(port.downloads + 10) * (1.3 if port.rtr else 1)
 
 
 def load_runtimes():
@@ -389,6 +443,39 @@ def requirements(game):
         return None
     return bool(attr.get("rtr")), (attr.get("inst") or "").strip(), attr.get("porter") or [], \
         attr.get("availability") == "paid"
+
+
+# ---------------------------------------------------------------- notice, lanceurs multiples
+
+def readme(game):
+    """Notice du port (README.md, readme.txt…) : chemin, ou None."""
+    for d in core.port_dirs(game.path):
+        try:
+            names = sorted((e for e in os.scandir(d) if e.is_file() and e.name.lower().startswith("readme")),
+                           key=lambda e: (not e.name.lower().endswith((".md", ".txt")), e.name.lower()))
+        except OSError:
+            continue
+        if names:
+            return names[0].path
+    return None
+
+
+def group_launchers(games):
+    """Réunit les scripts d'un même port (Quake 2 et ses 4 extensions…) : le principal reçoit
+    .variants = [autres scripts], qui sont retirés de la liste. Les autres jeux passent tels quels."""
+    groups, out = {}, []
+    for g in games:
+        g.variants = []
+        d = core.port_dir(g.path) if g.system.lower() == "ports" and g.path.lower().endswith(".sh") else None
+        if d:
+            groups.setdefault(os.path.normcase(d), []).append(g)
+        else:
+            out.append(g)
+    for members in groups.values():
+        main = min(members, key=lambda g: (len(g.name), g.name.lower()))  # « Quake 2 » avant « Quake 2 - Zaero »
+        main.variants = [g for g in members if g is not main]
+        out.append(main)
+    return out
 
 
 # ---------------------------------------------------------------- fichiers du jeu original
