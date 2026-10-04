@@ -25,7 +25,7 @@ def test_disc_files_are_grouped(card):
     psx = core.load_all(card)["psx"]
     mgs = [g for g in psx if "Metal Gear" in g.path]
     assert len(mgs) == 2  # .img / .sub rattachés au .ccd, pas de faux jeux
-    files = names([type("G", (), {"path": p}) for p in core.game_files(mgs[0])])
+    files = names([type("G", (), {"path": p}) for p in core.game_files(next(g for g in mgs if "Disc 1" in g.path))])
     assert files == sorted(["Metal Gear Solid (EU) - (Disc 1 of 2)" + e for e in (".ccd", ".img", ".sub")])
 
 

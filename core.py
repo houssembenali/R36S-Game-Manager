@@ -324,7 +324,7 @@ def _gamelist_games(root, system, sysdir):
 def _unlisted_games(system, sysdir, listed):
     """Jeux présents sur la carte mais absents du gamelist.xml."""
     only_ext = ROOT_ONLY_SYSTEMS.get(system.lower())
-    files = sorted(candidate_files(sysdir, only_ext is not None), key=primary_rank)
+    files = sorted(candidate_files(sysdir, only_ext is not None), key=lambda f: (primary_rank(f), f.lower()))  # même ordre sous Windows et Linux
     if only_ext:
         files = [f for f in files if os.path.splitext(f)[1].lower() in only_ext]
     used = {os.path.normcase(p) for g in listed for p in game_files(g)}
