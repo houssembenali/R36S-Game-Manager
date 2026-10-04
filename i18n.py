@@ -394,7 +394,7 @@ EN = {
     "Coche ceux que tu ne veux plus installer : ils passent par la corbeille.":
         "These ports will be installed the next time PortMaster is launched on the console. "
         "Check the ones you no longer want to install: they go to the trash.",
-    "RETIRER": "REMOVE", "{n} port retiré": "{n} port removed", "{n} ports retirés": "{n} ports removed",
+    "{n} port retiré": "{n} port removed", "{n} ports retirés": "{n} ports removed",
     "Retrait de {n} port en attente": "Removing {n} pending port",
     "Retrait de {n} ports en attente": "Removing {n} pending ports",
     # santé de la carte, doublons
@@ -433,6 +433,79 @@ EN = {
         "region and the latest revision. Checked copies will be deleted (they go to the trash).",
     "{n} doublon supprimé": "{n} duplicate deleted", "{n} doublons supprimés": "{n} duplicates deleted",
     "Suppression de {n} doublon": "Deleting {n} duplicate", "Suppression de {n} doublons": "Deleting {n} duplicates",
+    # arcade incomplets, fiches, statistiques, thèmes, nouvelle carte
+    "Arcade incomplets": "Incomplete arcade", "le jeu principal": "the main game", "le BIOS": "the BIOS",
+    "Ce jeu ne se lancera pas : il manque {files}.": "This game will not start: {files} is missing.",
+    "Ajoute ce fichier dans le même dossier (ou le BIOS dans bios/).":
+        "Add this file to the same folder (or the BIOS to bios/).",
+    "Masqué sur la console (ce n'est pas un jeu).": "Hidden on the console (not a game).",
+    "Nettoyer les fiches": "Clean up game cards", "Nettoyer les fiches…": "Clean up game cards…",
+    "Nettoyage des fiches": "Game card cleanup", "Rien à nettoyer dans les fiches.": "Nothing to clean in the game cards.",
+    "Description inutile : {system}": "Useless description: {system}", "Masquer « {name} »": "Hide \"{name}\"",
+    "ce n'est pas un jeu (BIOS, fichier technique)": "not a game (BIOS, technical file)",
+    "Ces descriptions sont le même texte collé sur beaucoup de jeux : elles sont retirées pour que « Compléter les "
+    "fiches » mette les vraies. Les fichiers qui ne sont pas des jeux sont masqués dans EmulationStation, pas "
+    "supprimés (l'émulateur peut en avoir besoin).":
+        "These descriptions are the same text pasted on many games: they are removed so that \"Complete cards\" "
+        "can add the real ones. Files that are not games are hidden in EmulationStation, not deleted (the emulator "
+        "may need them).",
+    "Fiches nettoyées : {desc} descriptions retirées, {hidden} fichiers masqués":
+        "Cards cleaned: {desc} descriptions removed, {hidden} files hidden",
+    "Statistiques": "Statistics", "Statistiques…": "Statistics…", "JEUX": "GAMES", "CONSOLES": "CONSOLES",
+    "FAVORIS": "FAVORITES", "JAMAIS LANCÉS": "NEVER PLAYED",
+    "{size} de jeux · {played} jeux lancés au moins une fois · les jeux jamais lancés occupent {never}.":
+        "{size} of games · {played} games played at least once · never-played games take {never}.",
+    "LES PLUS JOUÉS": "MOST PLAYED", "DERNIERS JOUÉS": "RECENTLY PLAYED",
+    "GROS JEUX JAMAIS LANCÉS": "BIG GAMES NEVER PLAYED", "CONSOLES (PAR PARTIES)": "CONSOLES (BY PLAYS)",
+    "GENRES": "GENRES",
+    "Thèmes EmulationStation": "EmulationStation themes", "Thèmes EmulationStation…": "EmulationStation themes…",
+    "Les thèmes changent l'apparence des menus de la console. Le thème utilisé se choisit sur la console : START → "
+    "UI SETTINGS → THEME SET. Un thème qui ne dessine pas toutes tes consoles les affiche sans image.":
+        "Themes change how the console menus look. The theme in use is chosen on the console: START → UI SETTINGS → "
+        "THEME SET. A theme that does not cover all your consoles shows them without artwork.",
+    "THÈME": "THEME", "TES CONSOLES": "YOUR CONSOLES", "toutes": "all",
+    "{n} sur {total} : partiel": "{n} of {total}: partial", "AJOUTER UN DOSSIER…": "ADD A FOLDER…",
+    "AJOUTER UN .ZIP…": "ADD A .ZIP…", "{n} consoles dessinées": "{n} consoles covered",
+    "Thème complet : il sert aussi aux autres consoles.": "Full theme: it also covers the other consoles.",
+    "Tes consoles sans image avec ce thème :": "Your consoles without artwork in this theme:",
+    "Pas d'aperçu": "No preview", "{n} thème supprimé": "{n} theme deleted", "{n} thèmes supprimés": "{n} themes deleted",
+    "Suppression de {n} thème": "Deleting {n} theme", "Suppression de {n} thèmes": "Deleting {n} themes",
+    "Thème à ajouter": "Theme to add", "Archives de thème": "Theme archives",
+    "Dossier du thème à ajouter": "Theme folder to add", "Thème ajouté : {name}": "Theme added: {name}",
+    "Ajout d'un thème": "Adding a theme",
+    "Passer à une nouvelle carte SD": "Move to a new SD card", "Passer à une nouvelle carte SD…": "Move to a new SD card…",
+    "1. COPIE LA CARTE ACTUELLE SUR LE PC": "1. COPY THE CURRENT CARD TO THE PC",
+    "Tous tes jeux, images, sauvegardes, ports et thèmes (la partition EASYROMS) sont copiés dans un dossier du PC. "
+    "Compte une heure pour 100 Go ; la copie peut être arrêtée et reprise.":
+        "All your games, images, saves, ports and themes (the EASYROMS partition) are copied to a folder on the PC. "
+        "Allow about an hour for 100 GB; the copy can be stopped and resumed.",
+    "COPIER LA CARTE SUR LE PC": "COPY THE CARD TO THE PC",
+    "2. PRÉPARE LA NOUVELLE CARTE": "2. PREPARE THE NEW CARD",
+    "Prends une carte de marque (SanDisk, Samsung, Kingston…) : celles livrées avec la R36S lâchent souvent. Écris "
+    "dessus l'image ArkOS de ta R36S avec balenaEtcher ou Rufus, mets-la dans la console et démarre-la une fois "
+    "(ArkOS prépare la carte), puis remets-la dans le PC.":
+        "Use a brand-name card (SanDisk, Samsung, Kingston…): the ones shipped with the R36S often fail. Write the "
+        "ArkOS image for your R36S to it with balenaEtcher or Rufus, put it in the console and boot it once (ArkOS "
+        "sets up the card), then put it back in the PC.",
+    "3. REMETS TA COPIE SUR LA NOUVELLE CARTE": "3. PUT YOUR COPY ON THE NEW CARD",
+    "Choisis la partition EASYROMS de la nouvelle carte en haut de la fenêtre, puis remets ta copie dessus. Les "
+    "fichiers déjà présents et identiques sont gardés, rien n'est supprimé.":
+        "Choose the new card's EASYROMS partition at the top of the window, then put your copy on it. Files that are "
+        "already there and identical are kept; nothing is deleted.",
+    "REMETTRE MA COPIE SUR CETTE CARTE": "PUT MY COPY ON THIS CARD", "Dernière copie : {path}": "Last copy: {path}",
+    "Où copier la carte sur le PC ?": "Where should the card be copied on the PC?",
+    "Copie de la carte sur le PC": "Copy of the card on the PC", "Copie vers la nouvelle carte": "Copy to the new card",
+    "Ce dossier ne ressemble pas à une copie de carte ArkOS (aucun dossier de console).":
+        "This folder does not look like a copy of an ArkOS card (no console folder).",
+    "Choisis en haut la nouvelle carte, pas la copie.": "Choose the new card at the top, not the copy.",
+    "Comparaison des fichiers…": "Comparing files…", "Tout est déjà copié : rien à faire.": "Everything is already copied.",
+    "Pas assez de place : il faut {need}, il reste {free}.": "Not enough space: {need} needed, {free} left.",
+    "{n} fichiers ({size}) vont être copiés vers {dest}. Les fichiers déjà présents et identiques sont gardés ; rien "
+    "n'est supprimé.": "{n} files ({size}) will be copied to {dest}. Files already there and identical are kept; "
+                       "nothing is deleted.",
+    "COPIER": "COPY", "{n} fichier copié.": "{n} file copied.", "{n} fichiers copiés.": "{n} files copied.",
+    "Relance la copie pour finir : elle reprendra où elle s'est arrêtée.":
+        "Run the copy again to finish: it will resume where it stopped.",
     # noms des jeux d'arcade
     "Vrais noms des jeux d'arcade…": "Real names of arcade games…", "Jeux d'arcade": "Arcade games",
     "Tous les jeux d'arcade ont déjà un vrai nom.": "All arcade games already have a real name.",
@@ -450,7 +523,7 @@ EN = {
     "directement sur la carte.":
         "Every game released on each console, with the ones you already have. Commercial games are protected: copy "
         "them from your own cartridge or disc. Free and legal games (homebrew, Freedoom) install straight to the card.",
-    "Console :": "Console:", "Tous les jeux": "All games", "Sur ma carte": "On my card", "Manquants": "Missing",
+    "Console :": "Console:", "Sur ma carte": "On my card", "Manquants": "Missing",
     "Gratuits à installer": "Free to install", "JEU": "GAME", "RÉGIONS": "REGIONS",
     "SITE DU JEU": "GAME WEBSITE", "Liste indisponible (pas d'internet ?)": "List unavailable (no internet?)",
     "Chargement de la liste…": "Loading the list…",
@@ -467,7 +540,7 @@ EN = {
     "Gratuit et légal : il s'installe directement sur la carte.": "Free and legal: it installs straight to the card.",
     "Jeu du commerce : copie-le depuis ta propre cartouche ou ton disque, puis ajoute-le avec « Ajouter des jeux ».":
         "Commercial game: copy it from your own cartridge or disc, then add it with \"Add games\".",
-    "Année": "Year", "Régions": "Regions", "Licence": "License", "Versions :": "Versions:",
+    "Régions": "Regions", "Licence": "License", "Versions :": "Versions:",
     "{n} jeu gratuit installé": "{n} free game installed", "{n} jeux gratuits installés": "{n} free games installed",
     "Certains jeux n'ont pas pu être installés :": "Some games could not be installed:",
     "Installation de {n} jeu gratuit": "Installing {n} free game",

@@ -12,6 +12,8 @@ import zipfile
 from tkinter import filedialog
 
 import bios
+import cardcopy
+import cardfix
 import chd
 import core
 import dupes
@@ -28,10 +30,13 @@ import ports
 import saves
 import scraper
 import settings
+import shutil
+import stats
 import systems
+import themes
 import theme as T
-from dialogs import (ChecklistDialog, EditDialog, GameCatalogDialog, HistoryDialog, ImportDialog,
-                     PortCatalogDialog, ReportDialog)
+from dialogs import (CardMoveDialog, ChecklistDialog, EditDialog, GameCatalogDialog, HistoryDialog, ImportDialog,
+                     PortCatalogDialog, ReportDialog, StatsDialog, ThemesDialog)
 from i18n import _, _n
 from widgets import _dialog, human, info
 
@@ -50,12 +55,14 @@ class ToolsMixin:
                                (None, None),
                                (_("Compléter les fiches incomplètes…"), self.complete_cards),
                                (_("Vrais noms des jeux d'arcade…"), self.arcade_names),
+                               (_("Nettoyer les fiches…"), self.clean_cards),
                                (_("Regrouper les jeux multi-disques…"), self.group_multidisc),
                                (_("Compresser les jeux CD en CHD…"), self.compress_chd),
                                (_("Supprimer des vidéos…"), self.delete_videos_tool),
                                (_("Nettoyer la carte…"), self.cleanup),
                                (_("Chercher les doublons…"), self.find_dupes),
                                (_("Vérifier la carte SD…"), self.check_card),
+                               (_("Passer à une nouvelle carte SD…"), self.move_card),
                                (None, None),
                                (_("Catalogue PortMaster…"), self.port_catalog),
                                (_("Mises à jour des ports…"), self.port_updates),
@@ -66,6 +73,8 @@ class ToolsMixin:
                                (_("Restaurer des parties…"), self.restore_saves),
                                (None, None),
                                (_("Vérifier les BIOS…"), self.check_bios),
+                               (_("Thèmes EmulationStation…"), self.manage_themes),
+                               (_("Statistiques…"), self.show_stats),
                                (None, None),
                                (_("Historique et corbeille…"), self.show_history)):
             if label is None:
@@ -518,6 +527,171 @@ class ToolsMixin:
         self.run_in_background(_("Catalogue de jeux"), "download", len(entries), work, done,
                                _n(len(entries), "Installation de {n} jeu gratuit",
                                   "Installation de {n} jeux gratuits"))
+
+    # ------------------------------------------------------------ fiches à nettoyer
+    def clean_cards(self):
+        """Descriptions copiées-collées à retirer et fichiers qui ne sont pas des jeux à masquer."""
+        junk = cardfix.junk_descriptions(self.games)
+        hide = cardfix.non_games(self.games)
+        if not junk and not hide:
+            info(self, _("Fiches"), _("Rien à nettoyer dans les fiches."))
+            return
+        actions = [("desc", games) for _text, games in junk.values()] + [("hide", [g]) for g in hide]
+        items = [(_("Description inutile : {system}", system=systems.name(games[0].system)),
+                  _n(len(games), "{n} jeu", "{n} jeux") + f" · « {text.strip()[:60]}… »", True, None)
+                 for text, games in junk.values()]
+        items += [(_("Masquer « {name} »", name=g.name),
+                   f"{systems.name(g.system)} · " + _("ce n'est pas un jeu (BIOS, fichier technique)"), True, None)
+                  for g in hide]
+        chosen = ChecklistDialog(self, _("Nettoyer les fiches"), "broom",
+                                 _("Ces descriptions sont le même texte collé sur beaucoup de jeux : elles sont "
+                                   "retirées pour que « Compléter les fiches » mette les vraies. Les fichiers qui ne "
+                                   "sont pas des jeux sont masqués dans EmulationStation, pas supprimés (l'émulateur "
+                                   "peut en avoir besoin)."), items, _("NETTOYER")).show()
+        if not chosen:
+            return
+        clear = [g for i in chosen if actions[i][0] == "desc" for g in actions[i][1]]
+        hidden = [g for i in chosen if actions[i][0] == "hide" for g in actions[i][1]]
+        root = self.root_path
+
+        def work(report, cancel):
+            errors = core.clear_descriptions(root, clear) if clear else []
+            return errors + (core.set_hidden(root, hidden, True) if hidden else [])
+
+        def done(errors):
+            self.reload_systems({g.system for g in clear + hidden})
+            self.flash(_("Fiches nettoyées : {desc} descriptions retirées, {hidden} fichiers masqués",
+                         desc=len(clear), hidden=len(hidden)), T.GREEN)
+            self._errors(errors)
+
+        self.run_in_background(_("Nettoyer les fiches"), "broom", None, work, done, _("Nettoyage des fiches"))
+
+    # ------------------------------------------------------------ statistiques et thèmes
+    def show_stats(self):
+        StatsDialog(self, stats.compute(self.games)).show()
+
+    def manage_themes(self):
+        root = self.root_path
+        choice = ThemesDialog(self, themes.list_themes(root), sorted(self.games)).show()
+        if not choice:
+            return
+        action, chosen = choice
+        if action == "delete":
+            if not chosen:
+                return
+            size = sum(t.size for t in chosen)
+
+            def work(report, cancel):
+                errors = []
+                for i, t in enumerate(chosen):
+                    report(i, t.name)
+                    try:
+                        journal.remove(t.path)
+                    except OSError as e:
+                        errors.append(f"{t.name} : {e}")
+                return errors
+
+            def done(errors):
+                self.refresh_usage()
+                self.flash(_n(len(chosen), "{n} thème supprimé", "{n} thèmes supprimés") + "  ·  "
+                           + _("{size} dans la corbeille", size=human(size)), T.GREEN)
+                self._errors(errors)
+                self.manage_themes()
+            self.run_in_background(_("Thèmes EmulationStation"), "trash", len(chosen), work, done,
+                                   _n(len(chosen), "Suppression de {n} thème", "Suppression de {n} thèmes"))
+            return
+        if action == "zip":
+            source = filedialog.askopenfilename(parent=self, title=_("Thème à ajouter"),
+                                                filetypes=[(_("Archives de thème"), "*.zip")])
+        else:
+            source = filedialog.askdirectory(parent=self, title=_("Dossier du thème à ajouter"))
+        if not source:
+            self.manage_themes()
+            return
+
+        def add(report, cancel):
+            return themes.install(root, source)
+
+        def added(path):
+            self.refresh_usage()
+            self.flash(_("Thème ajouté : {name}", name=os.path.basename(path)), T.GREEN)
+            self.manage_themes()
+
+        self.run_in_background(_("Thèmes EmulationStation"), "plus", None, add, added, _("Ajout d'un thème"))
+
+    # ------------------------------------------------------------ nouvelle carte SD
+    def move_card(self):
+        action = CardMoveDialog(self, settings.get("card_backup")).show()
+        if action == "backup":
+            self.backup_card()
+        elif action == "restore":
+            self.restore_card()
+
+    def backup_card(self):
+        """Copie toute la carte (EASYROMS) dans un dossier du PC ; une copie déjà faite est complétée."""
+        root = self.root_path
+        last = settings.get("card_backup")
+        base = filedialog.askdirectory(parent=self, title=_("Où copier la carte sur le PC ?"),
+                                       initialdir=os.path.dirname(last) if last else None)
+        if not base:
+            return
+        dest = base if os.path.basename(base) == cardcopy.BACKUP_NAME else os.path.join(base, cardcopy.BACKUP_NAME)
+        self._copy_card(root, dest, _("Copie de la carte sur le PC"),
+                        lambda: (settings.set("card_backup", dest), settings.save()))
+
+    def restore_card(self):
+        """Remet une copie de carte faite sur le PC sur la carte chargée (la nouvelle)."""
+        root = self.root_path
+        source = filedialog.askdirectory(parent=self, title=_("Copie de la carte sur le PC"),
+                                         initialdir=settings.get("card_backup") or None)
+        if not source:
+            return
+        if not core.looks_like_easyroms(source):
+            info(self, _("Passer à une nouvelle carte SD"),
+                 _("Ce dossier ne ressemble pas à une copie de carte ArkOS (aucun dossier de console)."))
+            return
+        if os.path.normcase(os.path.abspath(source)) == os.path.normcase(os.path.abspath(root)):
+            info(self, _("Passer à une nouvelle carte SD"), _("Choisis en haut la nouvelle carte, pas la copie."))
+            return
+        self._copy_card(source, root, _("Copie vers la nouvelle carte"), self.reload)
+
+    def _copy_card(self, src, dst, title, after):
+        def prepare(report, cancel):
+            report(0, _("Comparaison des fichiers…"))
+            return cardcopy.plan(src, dst)
+
+        def ready(items):
+            need = sum(size for _s, _d, size in items)
+            if not items:
+                info(self, title, _("Tout est déjà copié : rien à faire."))
+                after()
+                return
+            free = shutil.disk_usage(os.path.dirname(dst) if not os.path.isdir(dst) else dst).free
+            if need > free:
+                info(self, title, _("Pas assez de place : il faut {need}, il reste {free}.", need=human(need),
+                                    free=human(free)))
+                return
+            if not _dialog(self, title, _("{n} fichiers ({size}) vont être copiés vers {dest}. Les fichiers déjà "
+                                          "présents et identiques sont gardés ; rien n'est supprimé.",
+                                          n=len(items), size=human(need), dest=dst), "",
+                           [(_("ANNULER"), "normal", False), (_("COPIER"), "normal", True)], T.CYAN, "sd"):
+                return
+            mb = 1 << 20
+
+            def work(report, cancel):
+                return cardcopy.copy(items, lambda done, path: report(
+                    done // mb, f"{os.path.relpath(path, src)}  ·  {human(done)} / {human(need)}"), cancel)
+
+            def done(result):
+                copied, errors = result
+                info(self, title, _n(copied, "{n} fichier copié.", "{n} fichiers copiés.")
+                     + ("" if copied == len(items) else "\n" + _("Relance la copie pour finir : elle reprendra où "
+                                                                 "elle s'est arrêtée.")))
+                self._errors(errors, _("Certains fichiers n'ont pas pu être copiés :"))
+                after()
+            self.run_in_background(title, "sd", max(1, need // mb), work, done)
+
+        self.run_in_background(title, "sd", None, prepare, ready)
 
     # ------------------------------------------------------------ santé de la carte
     def check_card(self):

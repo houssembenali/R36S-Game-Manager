@@ -58,7 +58,7 @@ FALLBACK_MEDIA_DIRS = ("downloaded_images", "downloaded_videos", "media/images",
                        "snap", "boxart")
 
 INFO_TAGS = ("desc", "developer", "publisher", "releasedate", "genre", "players", "rating",
-             "playcount", "lastplayed")
+             "playcount", "lastplayed", "hidden")
 
 
 @dataclass
@@ -671,6 +671,22 @@ def set_favorites(root, games, value):
         _set_tag(el, "favorite", "true" if value else None)
         g.favorite = value
     return update_gamelist(root, games, apply, create=value)
+
+
+def set_hidden(root, games, value):
+    """Masque (value=True) ou réaffiche des jeux dans EmulationStation : balise <hidden>true</hidden>."""
+    def apply(el, g):
+        _set_tag(el, "hidden", "true" if value else None)
+        g.info["hidden"] = "true" if value else ""
+    return update_gamelist(root, games, apply, create=value)
+
+
+def clear_descriptions(root, games):
+    """Retire la description de ces jeux (ex. texte copié-collé qui n'en est pas une)."""
+    def apply(el, g):
+        _set_tag(el, "desc", None)
+        g.info["desc"] = ""
+    return update_gamelist(root, games, apply, create=False)
 
 
 def set_media(root, updates):

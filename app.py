@@ -11,6 +11,7 @@ from tkinter import ttk
 
 from PIL import Image, ImageTk
 
+import arcade
 import cleanup
 import core
 import filters
@@ -350,7 +351,7 @@ class App(ToolsMixin, BaseTk):
         row2.pack(fill="x", pady=(10, 0))
         self.filter_checks = {}
         for key, label in (("never", _("Jamais joué")), ("noimage", _("Sans image")), ("norating", _("Sans note")),
-                           ("nofiles", _("Ports sans fichiers du jeu"))):
+                           ("nofiles", _("Ports sans fichiers du jeu")), ("broken", _("Arcade incomplets"))):
             var = tk.BooleanVar(value=False)
             check = RetroCheck(row2, label, var, command=self._read_filters, bg=T.PANEL2)
             check.pack(side="left", padx=(0, 22))
@@ -934,9 +935,24 @@ class App(ToolsMixin, BaseTk):
         if i.get("desc"):
             parts.append((i["desc"] + "\n", None))
         parts += self._port_parts(g)
+        parts += self._arcade_parts(g)
+        if (i.get("hidden") or "").lower() == "true":
+            parts.append(("👁 " + _("Masqué sur la console (ce n'est pas un jeu).") + "\n", "file"))
         parts.append((T.px(_("Fichiers supprimés avec ce jeu")) + "\n", "head"))
         parts += [(f"> {os.path.relpath(p, g.sysdir)}\n", "file") for p in files]
         self._write_desc(parts)
+
+    def _arcade_parts(self, g):
+        """Jeu d'arcade qui ne se lancera pas : le fichier du jeu principal ou du BIOS manque."""
+        if g.system.lower() not in arcade.SYSTEMS:
+            return []
+        lost = arcade.missing(self.root_path, g)
+        if not lost:
+            return []
+        what = {"parent": _("le jeu principal"), "bios": _("le BIOS")}
+        text = "⚠ " + _("Ce jeu ne se lancera pas : il manque {files}.", files=", ".join(
+            f"{name} ({what[kind]})" for name, kind in lost))
+        return [(text + "\n" + _("Ajoute ce fichier dans le même dossier (ou le BIOS dans bios/).") + "\n", "warn")]
 
     def _show_port_buttons(self, g):
         """Sous la fiche d'un port : « ajouter les fichiers du jeu » et « voir sur Steam/GOG/itch.io »."""

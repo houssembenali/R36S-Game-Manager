@@ -3,14 +3,16 @@
 Fonctions pures (sans interface) : faciles à tester et à étendre. Pour ajouter un filtre :
 une clé dans EMPTY, son test dans matches(), puis son contrôle dans la barre (app.py).
 """
+import os
 import re
 
+import arcade
 import core
 import ports
 import regions
 
 EMPTY = {"genre": "", "players": 0, "region": "", "never": False, "noimage": False, "norating": False,
-         "nofiles": False}
+         "nofiles": False, "broken": False}
 
 PLAYERS = {"Tous": 0, "1 joueur": 1, "2 joueurs et +": 2, "3 joueurs et +": 3, "4 joueurs et +": 4}
 
@@ -50,6 +52,11 @@ def region_codes(games):
     return sorted(counts, key=lambda c: -counts[c])
 
 
+def game_root(game):
+    """Racine de la carte d'un jeu (le dossier qui contient le dossier de sa console)."""
+    return os.path.dirname(game.sysdir)
+
+
 def active_count(f):
     return sum(1 for k, v in f.items() if v != EMPTY[k])
 
@@ -66,6 +73,8 @@ def matches(game, f):
     if f["never"] and game.playcount:
         return False
     if f["noimage"] and core.cover_for(game):
+        return False
+    if f["broken"] and not (game.system.lower() in arcade.SYSTEMS and arcade.missing(game_root(game), game)):
         return False
     if f["nofiles"] and (game.system.lower() != "ports" or ports.files_missing(game) is not True):
         return False

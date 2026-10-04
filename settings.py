@@ -15,6 +15,7 @@ DEFAULTS = {
     "sort": "name_asc",
     "port_sort": "name",     # tri du catalogue PortMaster
     "game_sort": "title",    # tri du catalogue de jeux
+    "card_backup": "",       # dernière copie de la carte sur le PC
     "port_seen": "",         # date du port le plus récent vu dans le catalogue (badge « nouveau »)
     "video_muted": False,
     "panes": [],             # positions des séparateurs (liste des systèmes / détails)

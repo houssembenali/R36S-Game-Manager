@@ -1132,3 +1132,197 @@ class GameCatalogDialog(RetroWindow):
     def ok(self):
         self.result = list(self.marked.values())
         self.destroy()
+
+
+class StatsDialog(RetroWindow):
+    """Statistiques de la collection (stats.Stats)."""
+
+    def __init__(self, parent, s):
+        super().__init__(parent, _("Statistiques"), "gamepad")
+        tiles = tk.Frame(self.body, bg=T.PANEL)
+        tiles.pack(fill="x", pady=(0, 14))
+        for value, label, color in ((s.total, _("JEUX"), T.CYAN), (s.systems, _("CONSOLES"), T.MAGENTA),
+                                    (s.plays, _("PARTIES"), T.GREEN), (s.favorites, _("FAVORIS"), T.YELLOW),
+                                    (s.total - s.played, _("JAMAIS LANCÉS"), T.ORANGE)):
+            box = tk.Frame(tiles, bg=T.PANEL2, padx=18, pady=10)
+            box.pack(side="left", padx=(0, 10), fill="x", expand=True)
+            tk.Label(box, text=f"{value:,}".replace(",", " "), font=T.F["h1"], fg=color, bg=T.PANEL2).pack(anchor="w")
+            tk.Label(box, text=label, font=T.F["tiny"], fg=T.MUTED, bg=T.PANEL2).pack(anchor="w", pady=(6, 0))
+        tk.Label(self.body, text=_("{size} de jeux · {played} jeux lancés au moins une fois · les jeux jamais "
+                                   "lancés occupent {never}.", size=human(s.size), played=s.played,
+                                   never=human(s.never_size)),
+                 font=T.F["body"], fg=T.TEXT, bg=T.PANEL, anchor="w").pack(fill="x", pady=(0, 12))
+        cols = tk.Frame(self.body, bg=T.PANEL)
+        cols.pack(fill="both", expand=True)
+        left, middle, right = (tk.Frame(cols, bg=T.PANEL, width=360) for _i in range(3))
+        for col in (left, middle, right):
+            col.pack(side="left", fill="both", expand=True, padx=(0, 18), anchor="n")
+        self._list(left, _("LES PLUS JOUÉS"), [(g.name, _n(g.playcount, "{n} partie", "{n} parties"))
+                                                for g in s.top_played[:8]])
+        self._list(left, _("DERNIERS JOUÉS"), [(g.name, g.lastplayed.strftime("%d/%m/%Y")) for g in s.recent[:6]])
+        self._bars(middle, _("CONSOLES (PAR PARTIES)"),
+                   [(systems.name(sy), plays, _n(n, "{n} jeu", "{n} jeux") + f" · {_n(plays, '{n} partie', '{n} parties')}")
+                    for sy, n, _size, _p, plays in s.by_system], T.CYAN)
+        self._bars(right, _("GENRES"), [(g, n, _n(n, "{n} jeu", "{n} jeux")) for g, n in s.genres[:6]], T.MAGENTA)
+        self._list(right, _("GROS JEUX JAMAIS LANCÉS"), [(g.name, human(g.size)) for g in s.biggest_never[:5]])
+        bar = tk.Frame(self.body, bg=T.PANEL)
+        bar.pack(fill="x", pady=(14, 0))
+        PixelButton(bar, "OK", command=self.destroy).pack(side="right")
+
+    def _head(self, master, text):
+        tk.Label(master, text=T.px(text), font=T.F["tiny"], fg=T.YELLOW, bg=T.PANEL,
+                 anchor="w").pack(fill="x", pady=(8, 6))
+
+    def _list(self, master, title, rows):
+        self._head(master, title)
+        if not rows:
+            tk.Label(master, text="—", font=T.F["small"], fg=T.MUTED, bg=T.PANEL, anchor="w").pack(fill="x")
+        for name, value in rows:
+            row = tk.Frame(master, bg=T.PANEL)
+            row.pack(fill="x")
+            tk.Label(row, text=name, font=T.F["small"], fg=T.TEXT, bg=T.PANEL, anchor="w").pack(side="left")
+            tk.Label(row, text=value, font=T.F["small"], fg=T.MUTED, bg=T.PANEL).pack(side="right")
+
+    def _bars(self, master, title, rows, color):
+        """Barres horizontales : [(libellé, valeur, texte)] ; seules les 10 premières sont affichées."""
+        self._head(master, title)
+        top = max((v for _l, v, _t in rows), default=0) or 1
+        for label, value, text in rows[:10]:
+            row = tk.Frame(master, bg=T.PANEL)
+            row.pack(fill="x", pady=1)
+            tk.Label(row, text=label, font=T.F["small"], fg=T.TEXT, bg=T.PANEL, width=18, anchor="w").pack(side="left")
+            c = tk.Canvas(row, width=150, height=12, bg=T.PANEL2, highlightthickness=0)
+            c.pack(side="left", padx=6)
+            c.create_rectangle(0, 0, max(2, int(150 * value / top)), 12, fill=color, width=0)
+            tk.Label(row, text=text, font=T.F["small"], fg=T.MUTED, bg=T.PANEL, anchor="w").pack(side="left")
+
+
+class ThemesDialog(RetroWindow):
+    """Thèmes EmulationStation de la carte. Résultat : ("folder" | "zip", None) pour en ajouter un,
+    ("delete", [themes.Theme]) pour en supprimer, None si fermé."""
+    PREVIEW = (320, 220)
+
+    def __init__(self, parent, theme_list, card_systems):
+        super().__init__(parent, _("Thèmes EmulationStation"), "grid")
+        self.themes, self.card = theme_list, card_systems
+        tk.Label(self.body, text=_("Les thèmes changent l'apparence des menus de la console. Le thème utilisé se "
+                                   "choisit sur la console : START → UI SETTINGS → THEME SET. Un thème qui ne "
+                                   "dessine pas toutes tes consoles les affiche sans image."),
+                 font=T.F["body"], fg=T.TEXT, bg=T.PANEL, justify="left", wraplength=980,
+                 anchor="w").pack(fill="x", pady=(0, 10))
+        main = tk.Frame(self.body, bg=T.PANEL)
+        main.pack(fill="both", expand=True)
+        frame = tk.Frame(main, bg=T.PANEL)
+        frame.pack(side="left", fill="both", expand=True)
+        self.tree = ttk.Treeview(frame, columns=("size", "state"), show="tree headings", height=14,
+                                 selectmode="extended")
+        for col, text, width, anchor in (("#0", _("THÈME"), 280, "w"), ("size", _("TAILLE"), 90, "e"),
+                                         ("state", _("TES CONSOLES"), 260, "w")):
+            self.tree.heading(col, text=text, anchor=anchor)
+            self.tree.column(col, width=width, anchor=anchor)
+        self.tree.tag_configure("partial", foreground=T.YELLOW)
+        sb = ttk.Scrollbar(frame, orient="vertical", style=T.SCROLL, command=self.tree.yview)
+        self.tree.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        self.tree.pack(side="left", fill="both", expand=True)
+        for i, t in enumerate(theme_list):
+            missing = t.missing(card_systems)
+            state = (_("toutes") if not missing else
+                     _("{n} sur {total} : partiel", n=len(card_systems) - len(missing), total=len(card_systems)))
+            self.tree.insert("", "end", iid=str(i), text="  " + t.name, values=(human(t.size), state),
+                             tags=("partial",) if missing else ())
+        self.tree.bind("<<TreeviewSelect>>", lambda e: self._preview())
+
+        side = tk.Frame(main, bg=T.PANEL2, padx=12, pady=10, width=350)
+        side.pack(side="left", fill="y", padx=(12, 0))
+        side.pack_propagate(False)
+        self._blank = tk.PhotoImage(width=self.PREVIEW[0], height=self.PREVIEW[1])
+        self.image = tk.Label(side, image=self._blank, bg=T.BG, fg=T.MUTED, font=T.F["small"], compound="center")
+        self.image.pack()
+        self.info = tk.Label(side, font=T.F["small"], fg=T.TEXT, bg=T.PANEL2, wraplength=320, justify="left",
+                             anchor="nw")
+        self.info.pack(fill="both", expand=True, pady=(10, 0))
+
+        def left(b):
+            PixelButton(b, _("AJOUTER UN DOSSIER…"), icon="folder", command=lambda: self._close(("folder", None))
+                        ).pack(side="left")
+            PixelButton(b, _("AJOUTER UN .ZIP…"), icon="plus", command=lambda: self._close(("zip", None))
+                        ).pack(side="left", padx=10)
+        self.ok_btn = self.buttons(_("SUPPRIMER"), "trash", "danger", left=left)
+        self.ok_btn.set_enabled(False)
+        self._photo = None
+
+    def _close(self, result):
+        self.result = result
+        self.destroy()
+
+    def _selected(self):
+        return [self.themes[int(i)] for i in self.tree.selection()]
+
+    def _preview(self):
+        sel = self._selected()
+        self.ok_btn.set_enabled(bool(sel))
+        if not sel:
+            return
+        t = sel[-1]
+        missing = t.missing(self.card)
+        text = _("{n} consoles dessinées", n=len(t.systems)) if t.systems else ""
+        if t.generic:
+            text += ("\n" if text else "") + _("Thème complet : il sert aussi aux autres consoles.")
+        if missing:
+            text += ("\n\n" if text else "") + _("Tes consoles sans image avec ce thème :") + "\n" + \
+                ", ".join(systems.name(s) for s in missing)
+        self.info.configure(text=text)
+        self._photo = None
+        if t.preview:
+            try:
+                with Image.open(t.preview) as im:
+                    im = im.convert("RGBA").convert("RGB")
+                    im.thumbnail(self.PREVIEW)
+                    self._photo = ImageTk.PhotoImage(im)
+            except OSError:
+                pass
+        self.image.configure(image=self._photo or self._blank, text="" if self._photo else _("Pas d'aperçu"))
+
+    def ok(self):
+        self._close(("delete", self._selected()))
+
+
+class CardMoveDialog(RetroWindow):
+    """Guide pour passer à une nouvelle carte SD. Résultat : « backup », « restore » ou None."""
+
+    def __init__(self, parent, backup):
+        super().__init__(parent, _("Passer à une nouvelle carte SD"), "sd")
+        steps = (
+            (_("1. COPIE LA CARTE ACTUELLE SUR LE PC"),
+             _("Tous tes jeux, images, sauvegardes, ports et thèmes (la partition EASYROMS) sont copiés dans un "
+               "dossier du PC. Compte une heure pour 100 Go ; la copie peut être arrêtée et reprise."),
+             _("COPIER LA CARTE SUR LE PC"), "backup"),
+            (_("2. PRÉPARE LA NOUVELLE CARTE"),
+             _("Prends une carte de marque (SanDisk, Samsung, Kingston…) : celles livrées avec la R36S lâchent "
+               "souvent. Écris dessus l'image ArkOS de ta R36S avec balenaEtcher ou Rufus, mets-la dans la "
+               "console et démarre-la une fois (ArkOS prépare la carte), puis remets-la dans le PC."), "", ""),
+            (_("3. REMETS TA COPIE SUR LA NOUVELLE CARTE"),
+             _("Choisis la partition EASYROMS de la nouvelle carte en haut de la fenêtre, puis remets ta copie "
+               "dessus. Les fichiers déjà présents et identiques sont gardés, rien n'est supprimé."),
+             _("REMETTRE MA COPIE SUR CETTE CARTE"), "restore"),
+        )
+        for title, text, button, action in steps:
+            box = tk.Frame(self.body, bg=T.PANEL2, padx=16, pady=12)
+            box.pack(fill="x", pady=(0, 10))
+            tk.Label(box, text=title, font=T.F["tiny"], fg=T.YELLOW, bg=T.PANEL2, anchor="w").pack(fill="x")
+            tk.Label(box, text=text, font=T.F["body"], fg=T.TEXT, bg=T.PANEL2, justify="left", wraplength=640,
+                     anchor="w").pack(fill="x", pady=(8, 0))
+            if button:
+                PixelButton(box, button, icon="sd", command=lambda a=action: self._close(a)).pack(anchor="e",
+                                                                                                 pady=(10, 0))
+        if backup:
+            tk.Label(self.body, text=_("Dernière copie : {path}", path=backup), font=T.F["small"], fg=T.MUTED,
+                     bg=T.PANEL, anchor="w").pack(fill="x")
+        bar = tk.Frame(self.body, bg=T.PANEL)
+        bar.pack(fill="x", pady=(10, 0))
+        PixelButton(bar, _("FERMER"), command=self.destroy).pack(side="right")
+
+    def _close(self, action):
+        self.result = action
+        self.destroy()
