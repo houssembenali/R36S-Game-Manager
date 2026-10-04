@@ -89,3 +89,34 @@ def test_display_title():
     assert gamecat.display_title("Legend of Zelda, The - A Link to the Past") == \
         "The Legend of Zelda - A Link to the Past"
     assert gamecat.display_title("Tetris") == "Tetris"
+
+
+LAUNCHBOX_XML = b"""<?xml version="1.0"?>
+<LaunchBox>
+  <Game><Name>Castlevania: Aria of Sorrow</Name><Platform>Nintendo Game Boy Advance</Platform>
+    <CommunityRating>4.61</CommunityRating><CommunityRatingCount>378</CommunityRatingCount><DatabaseID>7</DatabaseID></Game>
+  <Game><Name>Obscure Game</Name><Platform>Nintendo Game Boy Advance</Platform>
+    <CommunityRating>5</CommunityRating><CommunityRatingCount>1</CommunityRatingCount><DatabaseID>8</DatabaseID></Game>
+  <Game><Name>Halo</Name><Platform>Windows</Platform>
+    <CommunityRating>4</CommunityRating><CommunityRatingCount>99</CommunityRatingCount><DatabaseID>9</DatabaseID></Game>
+  <GameAlternateName><AlternateName>Castlevania: Akatsuki no Minuet</AlternateName><DatabaseID>7</DatabaseID></GameAlternateName>
+  <GameImage><DatabaseID>7</DatabaseID><FileName>x.png</FileName></GameImage>
+</LaunchBox>"""
+
+
+def test_ratings_merge_versions_and_rank_by_score():
+    table = gamecat.parse_launchbox(io.BytesIO(LAUNCHBOX_XML))
+    assert set(table) == {"Nintendo Game Boy Advance"}  # les plateformes hors R36S sont ignorées
+    entries = [gamecat.Entry("Castlevania - Akatsuki no Minuet", "gba", "castlevaniaakatsukinominuet",
+                             ["Castlevania - Akatsuki no Minuet (Japan)"], ["jp"], year="2003"),
+               gamecat.Entry("Castlevania - Aria of Sorrow", "gba", "castlevaniaariaofsorrow",
+                             ["Castlevania - Aria of Sorrow (Europe)"], ["eu"], year="2003"),
+               gamecat.Entry("Obscure Game", "gba", "obscuregame", ["Obscure Game (USA)"], ["us"])]
+    merged = gamecat.apply_ratings(entries, table)
+    assert [e.title for e in merged] == ["Castlevania - Aria of Sorrow", "Obscure Game"]
+    cv = merged[0]
+    assert (cv.rating, cv.votes) == (4.61, 378) and cv.regions == ["jp", "eu"] and len(cv.names) == 2
+    assert cv.names[0].endswith("(Europe)")
+    assert cv.score > merged[1].score  # 5/5 avec un seul vote passe derrière 4,6/5 avec 378 votes
+    from dialogs import stars
+    assert stars(4.61) == "★★★★☆ 4,6" and stars(4.8) == "★★★★★ 4,8"

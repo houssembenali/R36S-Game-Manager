@@ -3,6 +3,8 @@
 - Jeux du commerce : liste complète des jeux sortis sur chaque console (bases No-Intro / Redump
   de RetroArch), avec genre, année et développeur. Fiches seulement : ces jeux sont protégés,
   on les copie depuis sa propre cartouche ou son propre disque.
+- Notes et popularité : base LaunchBox (note de la communauté sur 5 et nombre de votes),
+  téléchargée une fois par mois (108 Mo) puis réduite à un petit index.
 - Jeux gratuits et légaux, installables directement sur la carte :
     Homebrew Hub (hh.gbdev.io) : jeux amateurs Game Boy, Game Boy Color, GBA et NES ;
     Freedoom : Doom complet et libre (dossier doom).
@@ -13,6 +15,7 @@ import os
 import re
 import time
 import urllib.parse
+import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass, field
 
@@ -30,6 +33,27 @@ HH_FILE = "https://hh3.gbdev.io/static/{}/entries/{}/{}"
 FREEDOOM = "https://api.github.com/repos/freedoom/freedoom/releases/latest"
 CACHE_DIR = paths.data("cache", "catalog")
 CACHE_DAYS = 7
+LAUNCHBOX = "https://gamesdb.launchbox-app.com/Metadata.zip"
+RATINGS_DAYS = 30
+# dossier ArkOS -> plateforme LaunchBox
+LB_PLATFORMS = {
+    "gb": "Nintendo Game Boy", "gbc": "Nintendo Game Boy Color", "gba": "Nintendo Game Boy Advance",
+    "nes": "Nintendo Entertainment System", "famicom": "Nintendo Entertainment System",
+    "fds": "Nintendo Famicom Disk System", "snes": "Super Nintendo Entertainment System",
+    "sfc": "Super Nintendo Entertainment System", "n64": "Nintendo 64", "nds": "Nintendo DS",
+    "virtualboy": "Nintendo Virtual Boy", "pokemini": "Nintendo Pokemon Mini", "gameandwatch": "Nintendo Game & Watch",
+    "gamegear": "Sega Game Gear", "mastersystem": "Sega Master System", "megadrive": "Sega Genesis",
+    "genesis": "Sega Genesis", "sega32x": "Sega 32X", "segacd": "Sega CD", "saturn": "Sega Saturn",
+    "dreamcast": "Sega Dreamcast", "sg-1000": "Sega SG-1000", "psx": "Sony Playstation", "psp": "Sony PSP",
+    "pcengine": "NEC TurboGrafx-16", "tg16": "NEC TurboGrafx-16", "pcenginecd": "NEC TurboGrafx-CD",
+    "pcfx": "NEC PC-FX", "ngp": "SNK Neo Geo Pocket", "ngpc": "SNK Neo Geo Pocket Color",
+    "neogeocd": "SNK Neo Geo CD", "wonderswan": "WonderSwan", "wonderswancolor": "WonderSwan Color",
+    "atari2600": "Atari 2600", "atari5200": "Atari 5200", "atari7800": "Atari 7800", "atarilynx": "Atari Lynx",
+    "atarijaguar": "Atari Jaguar", "atarist": "Atari ST", "amiga": "Commodore Amiga", "c64": "Commodore 64",
+    "coleco": "ColecoVision", "intellivision": "Mattel Intellivision", "msx": "Microsoft MSX",
+    "msx2": "Microsoft MSX2", "3do": "3DO Interactive Multiplayer", "vectrex": "GCE Vectrex",
+    "zxspectrum": "Sinclair ZX Spectrum",
+}
 HH_PLATFORMS = {"gb": "GB", "gbc": "GBC", "gba": "GBA", "nes": "NES"}
 GENRES = set(metadata.GENRES.values())  # genres connus de la carte (un tag « 2d » n'en est pas un)
 # versions qui ne sont pas des jeux sortis en boutique
@@ -55,6 +79,21 @@ class Entry:
     license: str = ""
     website: str = ""
     added: str = ""             # date d'arrivée dans le catalogue (jeux gratuits)
+    rating: float = 0.0         # note de la communauté LaunchBox, sur 5 (0 = inconnue)
+    votes: int = 0              # nombre de votes : sert de mesure de popularité
+    game_id: str = ""           # identifiant LaunchBox : réunit les titres japonais / occidentaux d'un jeu
+
+    @property
+    def keys(self):
+        """Titres simplifiés du jeu et de toutes ses versions."""
+        return {k for k in [self.key] + [core.title_key(core.DISC_RE.sub("", n)) for n in self.names] if k}
+
+    @property
+    def score(self):
+        """Note corrigée par le nombre de votes (moyenne bayésienne) : un 5/5 donné par une seule
+        personne ne passe pas devant un 4,6/5 donné par mille."""
+        prior, weight = 3.0, 10
+        return (self.rating * self.votes + prior * weight) / (self.votes + weight) if self.votes else 0.0
 
 
 # ---------------------------------------------------------------- cache
@@ -229,6 +268,105 @@ def has_free(system):
     return system.lower() in HH_PLATFORMS or system.lower() == "doom"
 
 
+# ---------------------------------------------------------------- notes et popularité
+
+def _ratings_path():
+    return os.path.join(CACHE_DIR, "launchbox-ratings.json")
+
+
+def parse_launchbox(xml_file):
+    """{plateforme: {titre simplifié: [note, votes, identifiant, année, genre]}} depuis Metadata.xml de LaunchBox
+    (titres alternatifs compris : noms européens, japonais…)."""
+    wanted = set(LB_PLATFORMS.values())
+    games, alternates = {}, []
+    for _event, el in ET.iterparse(xml_file):
+        if el.tag == "Game":
+            platform, votes = el.findtext("Platform"), el.findtext("CommunityRatingCount") or "0"
+            if platform in wanted:
+                try:
+                    rating = float(el.findtext("CommunityRating") or 0)
+                except ValueError:
+                    rating = 0.0
+                year = (el.findtext("ReleaseDate") or el.findtext("ReleaseYear") or "")[:4]
+                genre = metadata.french_genre((el.findtext("Genres") or "").split(";")[0]) or ""
+                games[el.findtext("DatabaseID")] = (platform, el.findtext("Name") or "", round(rating, 2),
+                                                    int(votes) if votes.isdigit() else 0,
+                                                    year if year.isdigit() else "", genre)
+            el.clear()
+        elif el.tag == "GameAlternateName":
+            alternates.append((el.findtext("DatabaseID"), el.findtext("AlternateName") or ""))
+            el.clear()
+        elif el.tag == "GameImage":
+            el.clear()
+    out = {}
+    for db_id, (platform, name, rating, votes, year, genre) in games.items():
+        table, key = out.setdefault(platform, {}), core.title_key(name)
+        if key and (key not in table or votes > table[key][1]):
+            table[key] = [rating, votes, db_id, year, genre]
+    for db_id, name in alternates:
+        if db_id in games and (key := core.title_key(name)):
+            platform, _name, rating, votes, year, genre = games[db_id]
+            out[platform].setdefault(key, [rating, votes, db_id, year, genre])
+    return out
+
+
+def ratings(force=False):
+    """Index des notes LaunchBox (renouvelé tous les mois). {} si indisponible."""
+    path = _ratings_path()
+    fresh = os.path.isfile(path) and time.time() - os.path.getmtime(path) < RATINGS_DAYS * 86400
+    if force or not fresh:
+        part = os.path.join(CACHE_DIR, "launchbox-metadata.zip")
+        try:
+            os.makedirs(CACHE_DIR, exist_ok=True)
+            with net.open_url(LAUNCHBOX, timeout=120) as r, open(part, "wb") as f:
+                while chunk := r.read(1 << 20):
+                    f.write(chunk)
+            with zipfile.ZipFile(part) as z, z.open("Metadata.xml") as xml_file:
+                table = parse_launchbox(xml_file)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(table, f, separators=(",", ":"))
+        except (OSError, zipfile.BadZipFile, KeyError, ET.ParseError):
+            pass  # pas d'internet : on garde l'ancien index s'il existe
+        finally:
+            if os.path.isfile(part):
+                os.remove(part)  # 108 Mo : seul le petit index est gardé
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def apply_ratings(entries, table):
+    """Ajoute note et nombre de votes aux jeux, puis réunit en une ligne les titres d'un même jeu
+    (« Castlevania - Aria of Sorrow » et « Akatsuki no Minuet »). Retourne la nouvelle liste."""
+    for e in entries:
+        found = table.get(LB_PLATFORMS.get(e.system, ""), {})
+        for key in e.keys:
+            if key in found:
+                e.rating, e.votes, *rest = found[key]
+                e.game_id, year, genre = (rest + ["", "", ""])[:3]
+                e.year, e.genre = e.year or year, e.genre or genre  # CD (Redump) : pas d'année dans RetroArch
+                break
+    out, first = [], {}
+    for e in entries:
+        main = first.get(e.game_id) if e.game_id and e.votes and not e.free else None
+        if main is None:
+            if e.game_id and e.votes and not e.free:
+                first[e.game_id] = e
+            out.append(e)
+            continue
+        if _region_rank(e.names[0]) < _region_rank(main.names[0]):  # le titre européen / américain d'abord
+            main.title, e.title = e.title, main.title
+            main.names[:0] = e.names
+        else:
+            main.names += e.names
+        main.regions += [c for c in e.regions if c not in main.regions]
+        main.year = min(filter(None, (main.year, e.year)), default="")
+        main.genre, main.developer = main.genre or e.genre, main.developer or e.developer
+    return out
+
+
 # ---------------------------------------------------------------- sur la carte ?
 
 def owned_keys(games):
@@ -240,7 +378,7 @@ def owned_keys(games):
 def owned(entry, keys, folder_files=()):
     if entry.free and entry.filename.lower() in folder_files:
         return True
-    return bool(entry.key) and entry.key in keys
+    return bool(entry.keys & keys)
 
 
 # ---------------------------------------------------------------- installation

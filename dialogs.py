@@ -758,6 +758,12 @@ class PortCatalogDialog(RetroWindow):
         self.destroy()
 
 
+def stars(rating):
+    """« ★★★★☆ 4,2 » : note sur 5 en étoiles (une étoile de plus à partir de x,75)."""
+    full = int(rating + 0.25)
+    return "★" * full + "☆" * (5 - full) + f" {rating:.1f}".replace(".", ",")
+
+
 class GameCatalogDialog(RetroWindow):
     """Catalogue de jeux par console : tous les jeux sortis (fiches) et jeux gratuits installables.
     consoles = [dossier] ; games = {dossier: [Game]} de la carte. Résultat : [gamecat.Entry] à installer."""
@@ -771,6 +777,8 @@ class GameCatalogDialog(RetroWindow):
         self.marked, self.shots, self.shown = {}, {}, None
         self.keys, self.files = {}, {}        # dossier -> titres / fichiers présents sur la carte
         self.counts = (0, 0, 0)
+        self.ratings = None                   # index des notes LaunchBox (chargé en arrière-plan)
+        self.index = {}                       # identifiant de ligne -> Entry
         tk.Label(self.body, text=_("Tous les jeux sortis sur chaque console, avec ceux que tu as déjà. Les jeux du "
                                    "commerce sont protégés : copie-les depuis ta cartouche ou ton disque. Les jeux "
                                    "gratuits et légaux (homebrew, Freedoom) s'installent directement sur la carte."),
@@ -800,17 +808,40 @@ class GameCatalogDialog(RetroWindow):
         tk.Entry(bar, textvariable=self.query, bg=T.PANEL2, fg=T.TEXT, insertbackground=T.CYAN, relief="flat",
                  font=T.F["body"], width=24, highlightthickness=1, highlightbackground=T.BORDER,
                  highlightcolor=T.CYAN).pack(side="left", padx=(8, 0), ipady=3)
+        # tris : (id, libellé, clé, décroissant, colonne)
+        self.sorts = [
+            ("title", _("Titre (A → Z)"), lambda e: e.title.lower(), False, "#0"),
+            ("rating", _("Meilleures notes"), lambda e: e.score, True, "rating"),
+            ("popular", _("Plus populaires"), lambda e: e.votes, True, "votes"),
+            ("recent", _("Plus récents"), lambda e: e.year or "0", True, "year"),
+            ("old", _("Plus anciens"), lambda e: e.year or "9999", False, "year"),
+        ]
+        saved = settings.get("game_sort")
+        self.sort_id = saved if any(s[0] == saved for s in self.sorts) else "title"
+        sort_bar = tk.Frame(self.body, bg=T.PANEL)
+        sort_bar.pack(fill="x", pady=(0, 8))
+        tk.Label(sort_bar, text=_("Trier par :"), font=T.F["small"], fg=T.MUTED, bg=T.PANEL).pack(side="left")
+        self.sort_box = ttk.Combobox(sort_bar, values=[s[1] for s in self.sorts], state="readonly", width=20,
+                                     font=T.F["body"])
+        self.sort_box.current(next(i for i, s in enumerate(self.sorts) if s[0] == self.sort_id))
+        self.sort_box.bind("<<ComboboxSelected>>", lambda e: self._set_sort(self.sorts[self.sort_box.current()][0]))
+        self.sort_box.pack(side="left", padx=(8, 18))
+        self.rating_lbl = tk.Label(sort_bar, text=_("Notes : chargement…"), font=T.F["small"], fg=T.MUTED,
+                                   bg=T.PANEL)
+        self.rating_lbl.pack(side="left")
 
         main = tk.Frame(self.body, bg=T.PANEL)
         main.pack(fill="both", expand=True)
         frame = tk.Frame(main, bg=T.PANEL)
         frame.pack(side="left", fill="both", expand=True)
-        self.tree = ttk.Treeview(frame, columns=("year", "genre", "region", "state"), show="tree headings",
-                                 height=18, selectmode="browse")
-        for col, text, width, anchor in (("#0", _("JEU"), 330, "w"), ("year", _("ANNÉE"), 60, "w"),
-                                         ("genre", _("GENRE"), 120, "w"), ("region", _("RÉGIONS"), 110, "w"),
-                                         ("state", _("ÉTAT"), 120, "w")):
-            self.tree.heading(col, text=text, anchor=anchor)
+        self.tree = ttk.Treeview(frame, columns=("rating", "votes", "year", "genre", "region", "state"),
+                                 show="tree headings", height=18, selectmode="browse")
+        self.headings = {"#0": _("JEU"), "rating": _("NOTE"), "votes": _("VOTES"), "year": _("ANNÉE"),
+                         "genre": _("GENRE"), "region": _("RÉGIONS"), "state": _("ÉTAT")}
+        for col, width, anchor in (("#0", 300, "w"), ("rating", 90, "w"), ("votes", 60, "e"), ("year", 55, "w"),
+                                   ("genre", 110, "w"), ("region", 90, "w"), ("state", 110, "w")):
+            self.tree.heading(col, text=self.headings[col], anchor=anchor,
+                              command=lambda c=col: self._sort_by_column(c))
             self.tree.column(col, width=width, anchor=anchor)
         sb = ttk.Scrollbar(frame, orient="vertical", style=T.SCROLL, command=self.tree.yview)
         self.tree.configure(yscrollcommand=sb.set)
@@ -844,12 +875,59 @@ class GameCatalogDialog(RetroWindow):
             self.total = tk.Label(b, font=T.F["body"], fg=T.TEXT, bg=T.PANEL)
             self.total.pack(side="left")
         self.ok_btn = self.buttons(_("INSTALLER"), "download", left=left)
+        self._show_sort()
         self._load()
+        self._load_ratings()
 
     # ---------------------------------------------------------------- données
     @property
     def system(self):
         return self.consoles[self.console.current()]
+
+    def _load_ratings(self):
+        """Notes LaunchBox : index local, téléchargé (108 Mo, 20 s) au premier usage puis une fois par mois."""
+        box = {}
+        thread = threading.Thread(target=lambda: box.update(table=gamecat.ratings()), daemon=True)
+        thread.start()
+
+        def poll():
+            if not self.winfo_exists():
+                return
+            if thread.is_alive():
+                self.after(200, poll)
+                return
+            self.ratings = box.get("table") or {}
+            for system, entries in self.data.items():
+                self.data[system] = gamecat.apply_ratings(entries, self.ratings)
+            self.rating_lbl.configure(text=_("Notes et popularité : communauté LaunchBox") if self.ratings
+                                      else _("Notes indisponibles (pas d'internet ?)"))
+            self._fill()
+        poll()
+
+    def _set_sort(self, sort_id):
+        self.sort_id = sort_id
+        settings.set("game_sort", sort_id)
+        settings.save()
+        self._show_sort()
+        self._fill()
+
+    def _show_sort(self):
+        i = next(i for i, s in enumerate(self.sorts) if s[0] == self.sort_id)
+        _id, _label, _key, desc, column = self.sorts[i]
+        self.sort_box.current(i)
+        for col, text in self.headings.items():
+            self.tree.heading(col, text=text + ((" ▼" if desc else " ▲") if col == column else ""))
+
+    def _sort_by_column(self, column):
+        """Clic sur un en-tête : tri de cette colonne (puis l'autre sens pour l'année)."""
+        ids = [s[0] for s in self.sorts if s[4] == column]
+        if ids:
+            self._set_sort(ids[(ids.index(self.sort_id) + 1) % len(ids)] if self.sort_id in ids else ids[0])
+
+    def _sorted(self, entries):
+        """Jeux dans l'ordre du tri choisi (à égalité : ordre alphabétique)."""
+        _id, _label, key, desc, _col = next(s for s in self.sorts if s[0] == self.sort_id)
+        return sorted(sorted(entries, key=lambda e: e.title.lower()), key=key, reverse=desc)
 
     def _load(self):
         """Charge la liste de la console choisie (en arrière-plan, gardée pour la session)."""
@@ -880,7 +958,7 @@ class GameCatalogDialog(RetroWindow):
                 return
             self.loading.discard(system)
             if box.get("entries"):
-                self.data[system] = box["entries"]
+                self.data[system] = gamecat.apply_ratings(box["entries"], self.ratings or {})
             if system == self.system:
                 self._fill(error=False if box.get("entries") else "net" if "error" in box else "empty")
         poll()
@@ -910,7 +988,7 @@ class GameCatalogDialog(RetroWindow):
             self.genre.set(self.all_genres)
         q, genre, view = self.query.get().strip().lower(), self.genre.get(), self.view.current()
         shown = owned = 0
-        for i, e in enumerate(entries):
+        for e in self._sorted(entries):
             have = self._owned(e)
             owned += have
             if (view == 1 and not have) or (view == 2 and have) or (view == 3 and not e.free):
@@ -920,10 +998,13 @@ class GameCatalogDialog(RetroWindow):
             if q and q not in e.title.lower() and not any(q in n.lower() for n in e.names):
                 continue
             shown += 1
-            iid = f"{system}|{i}"
+            iid = f"e{id(e)}"  # stable même quand la liste est réorganisée (tri, regroupement)
+            self.index[iid] = e
             text, tags, state = self._row(e, iid, have)
             self.tree.insert("", "end", iid=iid, text=text, tags=tags,
-                             values=(e.year, e.genre, " ".join(c.upper() for c in e.regions[:4]), state))
+                             values=(stars(e.rating) if e.votes else "", f"{e.votes:,}".replace(",", " ")
+                                     if e.votes else "", e.year, e.genre, " ".join(c.upper() for c in e.regions[:4]),
+                                     state))
         if self.shown and self.tree.exists(self.shown):
             self.tree.selection_set(self.shown)
             self.tree.see(self.shown)
@@ -950,8 +1031,7 @@ class GameCatalogDialog(RetroWindow):
         return "  " + e.title, (), ""
 
     def _entry(self, iid):
-        system, i = iid.rsplit("|", 1)
-        return self.data[system][int(i)]
+        return self.index[iid]
 
     def _toggle(self):
         sel = self.tree.selection()
@@ -988,6 +1068,10 @@ class GameCatalogDialog(RetroWindow):
         else:
             t.insert("end", _("Jeu du commerce : copie-le depuis ta propre cartouche ou ton disque, puis ajoute-le "
                               "avec « Ajouter des jeux ».") + "\n\n", "muted")
+        if e.votes:
+            t.insert("end", _("Note : ") , "muted")
+            t.insert("end", _("{rating} / 5 ({votes} votes)", rating=f"{e.rating:.1f}".replace(".", ","),
+                              votes=f"{e.votes:,}".replace(",", " ")) + "\n", "free")
         for label, value in ((_("Année"), e.year), (_("Genre"), e.genre), (_("Développeur"), e.developer),
                              (_("Régions"), ", ".join(regions.region_name(c) for c in e.regions)),
                              (_("Licence"), e.license)):
