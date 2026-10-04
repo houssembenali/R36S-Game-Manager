@@ -20,12 +20,13 @@ import journal
 import metadata
 import multidisc
 import paths
+import ports
 import saves
 import scraper
 import settings
 import systems
 import theme as T
-from dialogs import ChecklistDialog, EditDialog, HistoryDialog, ImportDialog, ReportDialog
+from dialogs import ChecklistDialog, EditDialog, HistoryDialog, ImportDialog, PortCatalogDialog, ReportDialog
 from i18n import _, _n
 from widgets import _dialog, human, info
 
@@ -46,6 +47,9 @@ class ToolsMixin:
                                (_("Compresser les jeux CD en CHD…"), self.compress_chd),
                                (_("Supprimer des vidéos…"), self.delete_videos_tool),
                                (_("Nettoyer la carte…"), self.cleanup),
+                               (None, None),
+                               (_("Catalogue PortMaster…"), self.port_catalog),
+                               (_("Mises à jour des ports…"), self.port_updates),
                                (None, None),
                                (_("Sauvegarder mes parties sur le PC…"), self.backup_saves),
                                (_("Restaurer des parties…"), self.restore_saves),
@@ -210,7 +214,7 @@ class ToolsMixin:
     def enrich_games(self, games):
         """Complète les fiches (description, année, genre, développeur, éditeur, joueurs, images)
         depuis internet. Un jeu introuvable ou une source muette n'arrête jamais la suite."""
-        games = [g for g in games if metadata.missing_fields(g) or not core.cover_for(g)]
+        games = [g for g in games if metadata.missing_fields(g) or metadata.needs_images(g)]
         if not games:
             self.flash(_("Ces fiches sont déjà complètes"), T.GREEN)
             return
@@ -223,12 +227,7 @@ class ToolsMixin:
                     break
                 report(i, _("Recherche : {name}", name=g.name))
                 values = metadata.lookup(g)  # ne lève jamais
-                images = {}
-                if not core.cover_for(g) and scraper.supported(g.system):
-                    try:
-                        images = scraper.fetch_images(g)
-                    except Exception:  # réseau : on passe au jeu suivant
-                        images = {}
+                images = self._find_images(g)
                 if values:
                     core.set_info(root, g, values)
                 if images:
@@ -254,6 +253,24 @@ class ToolsMixin:
 
         self.run_in_background(_("Fiches depuis internet"), "download", len(games), work, finished,
                                _n(len(games), "Fiches complétées ({n} jeu)", "Fiches complétées ({n} jeux)"))
+
+    @staticmethod
+    def _find_images(g):
+        """Images à inscrire dans la fiche d'un jeu qui n'en a pas ({balise: chemin}). Ne lève jamais."""
+        if not metadata.needs_images(g):
+            return {}
+        try:
+            if core.port_media(g):
+                return core.port_media(g)  # images livrées avec le port : rien à télécharger
+            if g.system.lower() == "ports":
+                shot = ports.catalog_screenshot(g)  # capture du catalogue PortMaster
+                if not shot:
+                    return {}
+                path = scraper.save_image(shot, os.path.join(g.sysdir, "media", "images", g.stem))
+                return {"image": path, "thumbnail": path}
+            return scraper.fetch_images(g) if scraper.supported(g.system) else {}
+        except Exception:  # réseau : on passe au jeu suivant
+            return {}
 
     def complete_cards(self):
         games = metadata.incomplete([g for lst in self.games.values() for g in lst])
@@ -387,6 +404,76 @@ class ToolsMixin:
             self._errors(errors, _("Certains jeux n'ont pas pu être compressés :"))
 
         self.run_in_background(_("Compression CHD"), "compress", len(picked), work, done, _("Compression CHD"))
+
+    # ------------------------------------------------------------ ports PortMaster
+    def port_catalog(self):
+        """Catalogue PortMaster : choisir des ports à installer depuis le PC."""
+        root = self.root_path
+
+        def show(catalog):
+            chosen = PortCatalogDialog(self, catalog, ports.installed(root), ports.pending(root)).show()
+            if chosen:
+                self.install_ports(chosen)
+        self.run_in_background(_("Catalogue PortMaster"), "download", None,
+                               lambda report, cancel: ports.load_catalog(), show)
+
+    def port_updates(self):
+        """Ports installés dont le catalogue propose une version plus récente."""
+        root = self.root_path
+
+        def show(catalog):
+            waiting = ports.pending(root)
+            found = [p for p in ports.updates(root, catalog) if p.key not in waiting]
+            if not found:
+                info(self, _("Mises à jour des ports"), _("Tous les ports installés sont à jour."))
+                return
+            items = [(p.title, _("version du {date}", date=p.updated) if p.updated else "", True, p.size)
+                     for p in found]
+            chosen = ChecklistDialog(self, _("Mises à jour des ports"), "download",
+                                     _("Une version plus récente de ces ports existe. La nouvelle version remplace "
+                                       "l'ancienne au prochain lancement de PortMaster ; les fichiers du jeu et "
+                                       "les sauvegardes sont gardés."), items, _("METTRE À JOUR")).show()
+            if chosen:
+                self.install_ports([found[i] for i in chosen])
+        self.run_in_background(_("Mises à jour des ports"), "download", None,
+                               lambda report, cancel: ports.load_catalog(force=True), show)
+
+    def install_ports(self, chosen):
+        """Dépose les ports dans autoinstall et ajoute les runtimes manquants (la console n'a pas de Wi-Fi)."""
+        root = self.root_path
+        runtimes = ports.missing_runtimes(root, chosen)
+        jobs = [(p.title, p.size, lambda r, c, p=p: ports.download(root, p, r, c)) for p in chosen]
+        jobs += [(rt[0], rt[3], lambda r, c, rt=rt: ports.download_runtime(root, rt, r, c)) for rt in runtimes]
+
+        def work(report, cancel):
+            errors, ok = [], 0
+            for i, (name, size, fetch) in enumerate(jobs):
+                if cancel.is_set():
+                    break
+                report(i, _("Téléchargement : {name}", name=name))
+                progress = lambda done, i=i, name=name, size=size: report(
+                    i, _("Téléchargement : {name}", name=name) + f"  ·  {human(done)} / {human(size)}")
+                try:
+                    ok += bool(fetch(progress, cancel))
+                except OSError as e:
+                    errors.append(f"{name} : {e}")
+            return ok, errors
+
+        def done(result):
+            ok, errors = result
+            self.refresh_usage()
+            if ok:
+                text = _n(len(chosen), "{n} port est prêt à être installé.", "{n} ports sont prêts à être installés.")
+                if runtimes:
+                    text += "\n" + _n(len(runtimes), "{n} bibliothèque nécessaire a aussi été ajoutée.",
+                                       "{n} bibliothèques nécessaires ont aussi été ajoutées.")
+                info(self, _("Ports PortMaster"), text,
+                     _("Remets la carte dans la console et lance PortMaster (dans Ports ou Options) : il installe "
+                       "les ports déposés, qui apparaissent ensuite dans la liste Ports."))
+            self._errors(errors, _("Certains téléchargements ont échoué :"))
+
+        self.run_in_background(_("Installation des ports"), "download", len(jobs), work, done,
+                               _n(len(chosen), "Installation de {n} port", "Installation de {n} ports"))
 
     # ------------------------------------------------------------ sauvegardes
     def backup_saves(self):

@@ -13,6 +13,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 
 import core
+import ports
 import journal
 import systems
 from i18n import _
@@ -27,6 +28,9 @@ def categories():
         "misplaced": (_("Jeux dans le mauvais dossier"),
                       _("ROM dont le format ne correspond pas à la console du dossier : la console ne la lancera pas."),
                       False),
+        "portdir": (_("Dossiers de ports sans script"),
+                    _("Dossiers de ports PortMaster dont le jeu a été supprimé (son script .sh n'existe plus). "
+                      "Ils peuvent contenir les fichiers d'un jeu que tu voudrais réinstaller."), False),
         "oldlist": (_("Anciennes copies de gamelist"),
                     "gamelist.xml.old, gamelist.backup.xml, gamelist.xml.bak…", False),
     }
@@ -138,6 +142,8 @@ def scan(root, games_by_system):
             issues += _orphan_saves(system, sysdir, games)
             issues += _misplaced(system, games)
             issues += _old_lists(system, sysdir)
+            if system.lower() == "ports":
+                issues += [Issue("portdir", system, d, core.path_size(d)) for d in ports.orphan_dirs(root, games)]
         except OSError:
             continue
     return issues

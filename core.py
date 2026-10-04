@@ -499,7 +499,27 @@ def image_for(game, tags=None):
     for p in fallback_media(game):
         if os.path.splitext(p)[1].lower() in IMAGE_EXT:
             return p
+    media = port_media(game)  # images fournies avec le port (dans son dossier)
+    for tag in ("thumbnail", "image") if tags is COVER_TAGS else ("image", "thumbnail"):
+        if tag in media:
+            return media[tag]
     return None
+
+
+def port_media(game):
+    """Images livrées avec un port PortMaster : {"image": capture, "thumbnail": jaquette} (chemins existants)."""
+    if not game.path.lower().endswith(".sh"):
+        return {}
+    info, folder = port_info(game.path), port_dir(game.path)
+    image = (info.get("attr") or {}).get("image") or {}
+    if not folder or not isinstance(image, dict):
+        return {}
+    out = {}
+    for tag, names in (("image", [image.get("screenshot")]), ("thumbnail", image.get("covers") or [])):
+        path = next((os.path.join(folder, n) for n in names if n and os.path.isfile(os.path.join(folder, n))), None)
+        if path:
+            out[tag] = path
+    return out
 
 
 def video_for(game):

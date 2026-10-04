@@ -305,4 +305,45 @@ EN = {
     "requis": "required", "recommandé": "recommended", "optionnel": "optional",
     "Flash Dreamcast": "Dreamcast flash", "Carte système CD": "CD system card",
     "Carte système CD (jeux CD)": "CD system card (CD games)", "Extension MSX2": "MSX2 extension",
+    # ports PortMaster
+    "Dossiers de ports sans script": "Port folders without a script",
+    "Dossiers de ports PortMaster dont le jeu a été supprimé (son script .sh n'existe plus). "
+    "Ils peuvent contenir les fichiers d'un jeu que tu voudrais réinstaller.":
+        "PortMaster port folders whose game was deleted (its .sh script no longer exists). "
+        "They may hold the files of a game you would like to reinstall.",
+    "Port PortMaster": "PortMaster port",
+    "Prêt à jouer : aucun fichier à fournir.": "Ready to run: no files to provide.",
+    "Ce port a besoin des fichiers du jeu original.": "This port needs the original game files.",
+    "Le jeu original est payant.": "The original game is a paid game.",
+    "Porté par : {names}": "Ported by: {names}",
+    "Catalogue PortMaster": "PortMaster catalogue", "Catalogue PortMaster…": "PortMaster catalogue…",
+    "Mises à jour des ports": "Port updates", "Mises à jour des ports…": "Port updates…",
+    "Les ports cochés sont copiés dans ports/PortMaster/autoinstall : PortMaster les installe au prochain "
+    "lancement sur la console. Les « prêts à jouer » fonctionnent tout de suite ; les autres demandent les "
+    "fichiers du jeu original.":
+        "Checked ports are copied to ports/PortMaster/autoinstall: PortMaster installs them the next time it is "
+        "launched on the console. \"Ready to run\" ports work right away; the others need the original game files.",
+    "Rechercher :": "Search:", "Prêts à jouer seulement": "Ready to run only", "Tous les genres": "All genres",
+    "PORT": "PORT", "ÉTAT": "STATUS", "COCHER": "CHECK", "DÉCOCHER": "UNCHECK", "INSTALLER": "INSTALL",
+    "en attente": "pending", "installé": "installed", "mise à jour": "update",
+    "Mis à jour le {date}": "Updated on {date}", "Pas d'image": "No image", "Chargement…": "Loading…",
+    "Tous les ports installés sont à jour.": "All installed ports are up to date.",
+    "version du {date}": "version of {date}", "METTRE À JOUR": "UPDATE",
+    "Une version plus récente de ces ports existe. La nouvelle version remplace l'ancienne au prochain "
+    "lancement de PortMaster ; les fichiers du jeu et les sauvegardes sont gardés.":
+        "A newer version of these ports exists. It replaces the old one the next time PortMaster is launched; "
+        "game files and saves are kept.",
+    "Téléchargement : {name}": "Downloading: {name}",
+    "Certains téléchargements ont échoué :": "Some downloads failed:",
+    "Ports PortMaster": "PortMaster ports",
+    "{n} port est prêt à être installé.": "{n} port is ready to be installed.",
+    "{n} ports sont prêts à être installés.": "{n} ports are ready to be installed.",
+    "{n} bibliothèque nécessaire a aussi été ajoutée.": "{n} required library was also added.",
+    "{n} bibliothèques nécessaires ont aussi été ajoutées.": "{n} required libraries were also added.",
+    "Remets la carte dans la console et lance PortMaster (dans Ports ou Options) : il installe les ports "
+    "déposés, qui apparaissent ensuite dans la liste Ports.":
+        "Put the card back in the console and launch PortMaster (in Ports or Options): it installs the ports, "
+        "which then appear in the Ports list.",
+    "Installation des ports": "Installing ports",
+    "Installation de {n} port": "Installing {n} port", "Installation de {n} ports": "Installing {n} ports",
 }

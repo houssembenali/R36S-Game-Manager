@@ -8,6 +8,7 @@ from tkinter import filedialog, ttk
 from PIL import Image, ImageGrab, ImageTk
 
 import icons
+import net
 import scraper
 import systems
 import theme as T
@@ -455,3 +456,199 @@ class ReportDialog(RetroWindow):
         bar = tk.Frame(self.body, bg=T.PANEL)
         bar.pack(fill="x", pady=(14, 0))
         PixelButton(bar, "OK", command=self.destroy).pack(side="right")
+
+
+class PortCatalogDialog(RetroWindow):
+    """Catalogue PortMaster : recherche, filtre « prêts à jouer », aperçu et choix des ports à installer.
+    catalog = [ports.Port] ; have = {zip: md5 installé} ; waiting = zips déjà dans autoinstall.
+    Résultat : liste des Port cochés (None si annulé)."""
+    PREVIEW = (300, 200)
+
+    def __init__(self, parent, catalog, have, waiting):
+        super().__init__(parent, _("Catalogue PortMaster"), "download")
+        self.catalog, self.have, self.waiting = catalog, have, waiting
+        self.by_key = {p.key: p for p in catalog}
+        self.marked, self.shots, self.shown = set(), {}, None
+        tk.Label(self.body, text=_("Les ports cochés sont copiés dans ports/PortMaster/autoinstall : PortMaster "
+                                   "les installe au prochain lancement sur la console. Les « prêts à jouer » "
+                                   "fonctionnent tout de suite ; les autres demandent les fichiers du jeu original."),
+                 font=T.F["body"], fg=T.TEXT, bg=T.PANEL, justify="left", wraplength=980,
+                 anchor="w").pack(fill="x", pady=(0, 10))
+        bar = tk.Frame(self.body, bg=T.PANEL)
+        bar.pack(fill="x", pady=(0, 8))
+        self.query = tk.StringVar()
+        self.query.trace_add("write", lambda *a: self._fill())
+        tk.Label(bar, text=_("Rechercher :"), font=T.F["small"], fg=T.MUTED, bg=T.PANEL).pack(side="left")
+        tk.Entry(bar, textvariable=self.query, bg=T.PANEL2, fg=T.TEXT, insertbackground=T.CYAN, relief="flat",
+                 font=T.F["body"], width=28, highlightthickness=1, highlightbackground=T.BORDER,
+                 highlightcolor=T.CYAN).pack(side="left", padx=(8, 18), ipady=3)
+        self.rtr_only = tk.BooleanVar(value=True)
+        RetroCheck(bar, _("Prêts à jouer seulement"), self.rtr_only, command=self._fill).pack(side="left")
+        self.all_genres = _("Tous les genres")
+        genres = sorted({g for p in catalog for g in p.genres})
+        self.genre = ttk.Combobox(bar, values=[self.all_genres] + genres, state="readonly", width=16,
+                                  font=T.F["body"])
+        self.genre.set(self.all_genres)
+        self.genre.bind("<<ComboboxSelected>>", lambda e: self._fill())
+        self.genre.pack(side="left", padx=18)
+
+        main = tk.Frame(self.body, bg=T.PANEL)
+        main.pack(fill="both", expand=True)
+        frame = tk.Frame(main, bg=T.PANEL)
+        frame.pack(side="left", fill="both", expand=True)
+        self.tree = ttk.Treeview(frame, columns=("genre", "size", "state"), show="tree headings", height=16,
+                                 selectmode="browse")
+        for col, text, width, anchor in (("#0", _("PORT"), 300, "w"), ("genre", _("GENRE"), 150, "w"),
+                                         ("size", _("TAILLE"), 80, "e"), ("state", _("ÉTAT"), 120, "w")):
+            self.tree.heading(col, text=text, anchor=anchor)
+            self.tree.column(col, width=width, anchor=anchor)
+        sb = ttk.Scrollbar(frame, orient="vertical", style=T.SCROLL, command=self.tree.yview)
+        self.tree.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        self.tree.pack(side="left", fill="both", expand=True)
+        self.tree.tag_configure("marked", foreground=T.GREEN)
+        self.tree.tag_configure("installed", foreground=T.MUTED)
+        self.tree.tag_configure("update", foreground=T.YELLOW)
+        self.tree.bind("<<TreeviewSelect>>", lambda e: self._preview())
+        self.tree.bind("<Double-1>", lambda e: self._toggle())
+        self.tree.bind("<space>", lambda e: self._toggle())
+
+        side = tk.Frame(main, bg=T.PANEL2, padx=12, pady=10, width=340)
+        side.pack(side="left", fill="y", padx=(12, 0))
+        side.pack_propagate(False)
+        self._blank = tk.PhotoImage(width=self.PREVIEW[0], height=self.PREVIEW[1])
+        self.image = tk.Label(side, image=self._blank, bg=T.BG, fg=T.MUTED, font=T.F["small"], compound="center")
+        self.image.pack()
+        self.title_lbl = tk.Label(side, font=T.F["body"], fg=T.CYAN, bg=T.PANEL2, wraplength=310, justify="left",
+                                  anchor="w")
+        self.title_lbl.pack(fill="x", pady=(8, 2))
+        self.text = tk.Text(side, wrap="word", bg=T.PANEL2, fg=T.TEXT, font=T.F["small"], relief="flat",
+                            highlightthickness=0, height=10, width=36)
+        self.text.tag_configure("ok", foreground=T.GREEN)
+        self.text.tag_configure("warn", foreground=T.YELLOW)
+        self.text.tag_configure("muted", foreground=T.MUTED)
+        self.text.pack(fill="both", expand=True)
+        self.mark_btn = PixelButton(side, _("COCHER"), command=self._toggle)
+        self.mark_btn.pack(fill="x", pady=(8, 0))
+
+        def left(b):
+            self.total = tk.Label(b, font=T.F["body"], fg=T.TEXT, bg=T.PANEL)
+            self.total.pack(side="left")
+        self.ok_btn = self.buttons(_("INSTALLER"), "download", left=left)
+        self._fill()
+
+    def _state(self, p):
+        """(texte de la colonne ÉTAT, tag de couleur)."""
+        if p.key in self.waiting:
+            return _("en attente"), "installed"
+        if p.key in self.have:
+            if self.have[p.key] and p.md5 and self.have[p.key] != p.md5:
+                return _("mise à jour"), "update"
+            return _("installé"), "installed"
+        return "", ""
+
+    def _row(self, p):
+        marked = p.key in self.marked
+        tag = "marked" if marked else self._state(p)[1]
+        return ("☑ " if marked else "☐ ") + p.title, (tag,) if tag else ()
+
+    def _fill(self):
+        q = self.query.get().strip().lower()
+        genre = self.genre.get()
+        self.tree.delete(*self.tree.get_children())
+        for p in self.catalog:
+            if self.rtr_only.get() and not p.rtr and p.key not in self.marked:
+                continue
+            if genre != self.all_genres and genre not in p.genres:
+                continue
+            if q and q not in p.title.lower() and q not in p.desc.lower():
+                continue
+            text, tags = self._row(p)
+            self.tree.insert("", "end", iid=p.key, text=text, tags=tags,
+                             values=(", ".join(p.genres[:2]), human(p.size), self._state(p)[0]))
+        if self.shown and self.tree.exists(self.shown):
+            self.tree.selection_set(self.shown)
+            self.tree.see(self.shown)
+        self._update()
+
+    def _toggle(self):
+        sel = self.tree.selection()
+        if not sel:
+            return
+        key = sel[0]
+        self.marked ^= {key}
+        text, tags = self._row(self.by_key[key])
+        self.tree.item(key, text=text, tags=tags)
+        self._preview()
+        self._update()
+
+    def _update(self):
+        chosen = [self.by_key[k] for k in self.marked]
+        self.total.configure(text=_n(len(chosen), "{n} sélectionné", "{n} sélectionnés")
+                                  + (f"  ·  {human(sum(p.size for p in chosen))}" if chosen else ""))
+        self.ok_btn.set_enabled(bool(chosen))
+
+    def _preview(self):
+        sel = self.tree.selection()
+        if not sel:
+            return
+        p = self.by_key[sel[0]]
+        self.shown = p.key
+        self.title_lbl.configure(text=p.title)
+        self.mark_btn.configure(text=_("DÉCOCHER") if p.key in self.marked else _("COCHER"))
+        t = self.text
+        t.configure(state="normal")
+        t.delete("1.0", "end")
+        if p.rtr:
+            t.insert("end", "✓ " + _("Prêt à jouer : aucun fichier à fournir.") + "\n\n", "ok")
+        else:
+            t.insert("end", "⚠ " + _("Ce port a besoin des fichiers du jeu original.") + "\n", "warn")
+            if p.inst:
+                t.insert("end", p.inst.strip() + "\n", "muted")  # instructions du port (en anglais)
+            t.insert("end", "\n")
+        if p.paid:
+            t.insert("end", _("Le jeu original est payant.") + "\n\n", "warn")
+        t.insert("end", p.desc.strip() + "\n\n")
+        if p.porter:
+            t.insert("end", _("Porté par : {names}", names=", ".join(p.porter)) + "\n", "muted")
+        if p.updated:
+            t.insert("end", _("Mis à jour le {date}", date=p.updated) + "\n", "muted")
+        t.configure(state="disabled")
+        self._show_shot(p)
+
+    def _show_shot(self, p):
+        """Capture du port, téléchargée en arrière-plan puis gardée pour la session."""
+        if p.key in self.shots:
+            photo = self.shots[p.key]
+            self.image.configure(image=photo or self._blank, text="" if photo else _("Pas d'image"))
+            return
+        self.image.configure(image=self._blank, text=_("Chargement…") if p.screenshot else _("Pas d'image"))
+        if not p.screenshot:
+            return
+        result = {}
+
+        def fetch():
+            try:
+                with Image.open(io.BytesIO(net.get(p.screenshot, timeout=20))) as im:
+                    im = im.convert("RGB")
+                    im.thumbnail(self.PREVIEW)
+                    result["im"] = im
+            except Exception:
+                pass  # pas d'image : on affiche juste le texte
+        thread = threading.Thread(target=fetch, daemon=True)
+        thread.start()
+
+        def poll():
+            if not self.winfo_exists():
+                return
+            if thread.is_alive():
+                self.after(150, poll)
+                return
+            self.shots[p.key] = ImageTk.PhotoImage(result["im"]) if "im" in result else None
+            if self.shown == p.key:
+                self._show_shot(p)
+        poll()
+
+    def ok(self):
+        self.result = [p for p in self.catalog if p.key in self.marked]
+        self.destroy()

@@ -182,7 +182,7 @@ def set_image(root, game, tag, data, system_games):
     tags, folder = SLOTS[tag]
     tags = [t for t in tags if t == tag or t in game.media]  # <box> seulement s'il existait déjà
     old = {game.media[t] for t in tags if t in game.media}
-    new = _save(data, os.path.join(game.sysdir, os.path.normpath(folder), game.stem)) if data else None
+    new = save_image(data, os.path.join(game.sysdir, os.path.normpath(folder), game.stem)) if data else None
 
     def apply(el, g):
         for t in tags:
@@ -207,7 +207,7 @@ def set_image(root, game, tag, data, system_games):
     return errors
 
 
-def _save(data, base):
+def save_image(data, base):
     """Réduit l'image (l'écran de la R36S fait 640×480) et l'enregistre : JPEG si opaque
     (bien plus léger), PNG si elle a de la transparence. Retourne le chemin."""
     os.makedirs(os.path.dirname(base), exist_ok=True)
@@ -235,7 +235,7 @@ def fetch_images(game):
         except (urllib.error.URLError, OSError):
             continue
         try:
-            dest = _save(data, os.path.join(game.sysdir, os.path.normpath(folder), game.stem))
+            dest = save_image(data, os.path.join(game.sysdir, os.path.normpath(folder), game.stem))
         except OSError:
             continue
         saved[tag] = dest

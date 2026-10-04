@@ -18,6 +18,7 @@ import icons
 import journal
 import logos
 import paths
+import ports
 import regions
 import scraper
 import settings
@@ -411,6 +412,7 @@ class App(ToolsMixin, BaseTk):
         self.desc.tag_configure("head", foreground=T.YELLOW, font=T.F["tiny"], spacing1=16, spacing3=8)
         self.desc.tag_configure("file", foreground=T.MUTED)
         self.desc.tag_configure("warn", foreground=T.YELLOW)
+        self.desc.tag_configure("ok", foreground=T.GREEN)
         canvas.bind("<Configure>", lambda e: self.title_lbl.configure(wraplength=max(200, e.width - 44)), add="+")
         return outer
 
@@ -863,9 +865,30 @@ class App(ToolsMixin, BaseTk):
             parts.append((_("Ce jeu n'est pas dans le gamelist.xml (pas de fiche).") + "\n", "warn"))
         if i.get("desc"):
             parts.append((i["desc"] + "\n", None))
+        parts += self._port_parts(g)
         parts.append((T.px(_("Fichiers supprimés avec ce jeu")) + "\n", "head"))
         parts += [(f"> {os.path.relpath(p, g.sysdir)}\n", "file") for p in files]
         self._write_desc(parts)
+
+    @staticmethod
+    def _port_parts(g):
+        """Encadré d'un port PortMaster : prêt à jouer ou fichiers du jeu original à fournir."""
+        req = ports.requirements(g) if g.system.lower() == "ports" else None
+        if not req:
+            return []
+        rtr, inst, porter, paid = req
+        parts = [(T.px(_("Port PortMaster")) + "\n", "head")]
+        if rtr:
+            parts.append(("✓ " + _("Prêt à jouer : aucun fichier à fournir.") + "\n", "ok"))
+        else:
+            parts.append(("⚠ " + _("Ce port a besoin des fichiers du jeu original.") + "\n", "warn"))
+            if inst:
+                parts.append((inst + "\n", None))  # instructions du port (en anglais, telles que fournies)
+        if paid:
+            parts.append((_("Le jeu original est payant.") + "\n", "file"))
+        if porter:
+            parts.append((_("Porté par : {names}", names=", ".join(porter)) + "\n", "file"))
+        return parts
 
     # ================================================================ actions
     def run_in_background(self, title, icon, total, work, on_done, label=None):

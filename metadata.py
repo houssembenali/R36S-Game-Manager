@@ -265,7 +265,8 @@ def lookup(game):
     todo = missing_fields(game)
     if not todo:
         return {}
-    found, title = {}, clean_title(game)
+    local = from_port_json(game)  # port PortMaster : son port.json d'abord (sans internet)
+    found, title = dict(local), local.get("name") or clean_title(game)
     for source in (lambda: from_libretro(game), lambda: _wiki(game, title, todo - set(found), found)):
         try:
             for k, v in source().items():
@@ -291,6 +292,21 @@ def _wiki(game, title, todo, found):
     return data
 
 
+def from_port_json(game):
+    """Fiche d'un port PortMaster d'après son port.json : titre, description, genre."""
+    attr = core.port_info(game.path).get("attr") or {}
+    out = {"name": attr.get("title"), "desc": attr.get("desc"),
+           "genre": (attr.get("genres") or [""])[0]}
+    return {k: v.strip() for k, v in out.items() if isinstance(v, str) and v.strip()}
+
+
+def needs_images(game):
+    """Le jeu n'a pas d'image dans sa fiche (pour un port, ses images locales ne sont pas encore inscrites)."""
+    if game.system.lower() == "ports" and core.port_media(game):
+        return not game.media.get("image")
+    return not core.cover_for(game)
+
+
 def incomplete(games):
     """Jeux à qui il manque une description, une année, un genre ou une image."""
-    return [g for g in games if {"desc", "year", "genre"} & missing_fields(g) or not core.cover_for(g)]
+    return [g for g in games if {"desc", "year", "genre"} & missing_fields(g) or needs_images(g)]
