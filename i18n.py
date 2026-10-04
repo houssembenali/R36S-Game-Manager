@@ -346,4 +346,9 @@ EN = {
         "which then appear in the Ports list.",
     "Installation des ports": "Installing ports",
     "Installation de {n} port": "Installing {n} port", "Installation de {n} ports": "Installing {n} ports",
+    "Trier par :": "Sort by:", "Nom (A → Z)": "Name (A → Z)", "Nom (Z → A)": "Name (Z → A)",
+    "Ajoutés récemment": "Recently added", "Ajoutés il y a longtemps": "Oldest first",
+    "Mis à jour récemment": "Recently updated", "Plus petits d'abord": "Smallest first",
+    "Plus gros d'abord": "Largest first", "Installés d'abord": "Installed first",
+    "AJOUTÉ LE": "ADDED", "MIS À JOUR": "UPDATED",
 }

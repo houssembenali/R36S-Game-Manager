@@ -40,6 +40,7 @@ class Port:
     url: str
     md5: str
     updated: str       # date de la dernière version
+    added: str         # date d'arrivée du port dans PortMaster
     screenshot: str    # URL de la capture
     runtimes: list     # bibliothèques nécessaires (ex. « dotnet-8.0.12.squashfs »)
 
@@ -60,6 +61,7 @@ def _parse(data):
         out.append(Port(name, a.get("title") or name, a.get("desc") or "", a.get("inst") or "", a.get("genres") or [],
                         a.get("porter") or [], bool(a.get("rtr")), a.get("availability") == "paid",
                         src.get("size") or 0, src.get("url") or "", src.get("md5") or "", src.get("date_updated") or "",
+                        src.get("date_added") or src.get("date_updated") or "",
                         IMAGE_URL.format(dir=name[:-4], file=shot) if shot else "", a.get("runtime") or []))
     return sorted(out, key=lambda p: p.title.lower())
 

@@ -13,6 +13,7 @@ DEFAULTS = {
     "language": "",          # "" = langue du système
     "view": "grid",
     "sort": "name_asc",
+    "port_sort": "name",     # tri du catalogue PortMaster
     "video_muted": False,
     "panes": [],             # positions des séparateurs (liste des systèmes / détails)
     "drive": "",

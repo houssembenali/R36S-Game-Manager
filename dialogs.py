@@ -10,6 +10,7 @@ from PIL import Image, ImageGrab, ImageTk
 import icons
 import net
 import scraper
+import settings
 import systems
 import theme as T
 from i18n import _, _n
@@ -491,16 +492,41 @@ class PortCatalogDialog(RetroWindow):
         self.genre.set(self.all_genres)
         self.genre.bind("<<ComboboxSelected>>", lambda e: self._fill())
         self.genre.pack(side="left", padx=18)
+        # tris : (id, libellé, clé, décroissant, colonne dont l'en-tête active ce tri)
+        state_rank = {"update": 0, "installed": 1}
+        self.sorts = [
+            ("name", _("Nom (A → Z)"), lambda p: p.title.lower(), False, "#0"),
+            ("name_desc", _("Nom (Z → A)"), lambda p: p.title.lower(), True, "#0"),
+            ("added", _("Ajoutés récemment"), lambda p: p.added, True, "date"),
+            ("added_old", _("Ajoutés il y a longtemps"), lambda p: p.added, False, "date"),
+            ("updated", _("Mis à jour récemment"), lambda p: p.updated, True, "date"),
+            ("genre", _("Genre"), lambda p: p.genres[0] if p.genres else "~", False, "genre"),
+            ("small", _("Plus petits d'abord"), lambda p: p.size, False, "size"),
+            ("big", _("Plus gros d'abord"), lambda p: p.size, True, "size"),
+            ("state", _("Installés d'abord"),
+             lambda p: (p.key not in self.waiting, state_rank.get(self._state(p)[1], 2)), False, "state"),
+        ]
+        saved = settings.get("port_sort")
+        self.sort_id = saved if any(s[0] == saved for s in self.sorts) else "name"
+        tk.Label(bar, text=_("Trier par :"), font=T.F["small"], fg=T.MUTED, bg=T.PANEL).pack(side="left")
+        self.sort_box = ttk.Combobox(bar, values=[s[1] for s in self.sorts], state="readonly", width=24,
+                                     font=T.F["body"])
+        self.sort_box.bind("<<ComboboxSelected>>",
+                           lambda e: self._set_sort(self.sorts[self.sort_box.current()][0]))
+        self.sort_box.pack(side="left", padx=(8, 0))
 
         main = tk.Frame(self.body, bg=T.PANEL)
         main.pack(fill="both", expand=True)
         frame = tk.Frame(main, bg=T.PANEL)
         frame.pack(side="left", fill="both", expand=True)
-        self.tree = ttk.Treeview(frame, columns=("genre", "size", "state"), show="tree headings", height=16,
+        self.tree = ttk.Treeview(frame, columns=("genre", "date", "size", "state"), show="tree headings", height=16,
                                  selectmode="browse")
-        for col, text, width, anchor in (("#0", _("PORT"), 300, "w"), ("genre", _("GENRE"), 150, "w"),
-                                         ("size", _("TAILLE"), 80, "e"), ("state", _("ÉTAT"), 120, "w")):
-            self.tree.heading(col, text=text, anchor=anchor)
+        self.headings = {"#0": _("PORT"), "genre": _("GENRE"), "date": _("AJOUTÉ LE"), "size": _("TAILLE"),
+                         "state": _("ÉTAT")}
+        for col, width, anchor in (("#0", 280, "w"), ("genre", 140, "w"), ("date", 100, "w"), ("size", 80, "e"),
+                                   ("state", 110, "w")):
+            self.tree.heading(col, text=self.headings[col], anchor=anchor,
+                              command=lambda c=col: self._sort_by_column(c))
             self.tree.column(col, width=width, anchor=anchor)
         sb = ttk.Scrollbar(frame, orient="vertical", style=T.SCROLL, command=self.tree.yview)
         self.tree.configure(yscrollcommand=sb.set)
@@ -535,7 +561,30 @@ class PortCatalogDialog(RetroWindow):
             self.total = tk.Label(b, font=T.F["body"], fg=T.TEXT, bg=T.PANEL)
             self.total.pack(side="left")
         self.ok_btn = self.buttons(_("INSTALLER"), "download", left=left)
+        self._set_sort(self.sort_id)
+
+    def _set_sort(self, sort_id):
+        """Applique un tri (gardé pour la prochaine ouverture) et l'indique sur l'en-tête de sa colonne."""
+        self.sort_id = sort_id
+        settings.set("port_sort", sort_id)
+        settings.save()
+        i = next(i for i, s in enumerate(self.sorts) if s[0] == sort_id)
+        _id, _label, _key, desc, column = self.sorts[i]
+        self.sort_box.current(i)
+        self.headings["date"] = _("MIS À JOUR") if sort_id == "updated" else _("AJOUTÉ LE")
+        for col, text in self.headings.items():
+            self.tree.heading(col, text=text + ((" ▼" if desc else " ▲") if col == column else ""))
         self._fill()
+
+    def _sort_by_column(self, column):
+        """Clic sur un en-tête : premier tri de cette colonne, puis les suivants à chaque clic."""
+        ids = [s[0] for s in self.sorts if s[4] == column]
+        self._set_sort(ids[(ids.index(self.sort_id) + 1) % len(ids)] if self.sort_id in ids else ids[0])
+
+    def _sorted(self):
+        _id, _label, key, desc, _col = next(s for s in self.sorts if s[0] == self.sort_id)
+        by_name = sorted(self.catalog, key=lambda p: p.title.lower())
+        return sorted(by_name, key=key, reverse=desc)  # tri stable : à égalité, ordre alphabétique
 
     def _state(self, p):
         """(texte de la colonne ÉTAT, tag de couleur)."""
@@ -556,7 +605,8 @@ class PortCatalogDialog(RetroWindow):
         q = self.query.get().strip().lower()
         genre = self.genre.get()
         self.tree.delete(*self.tree.get_children())
-        for p in self.catalog:
+        date_updated = self.sort_id == "updated"
+        for p in self._sorted():
             if self.rtr_only.get() and not p.rtr and p.key not in self.marked:
                 continue
             if genre != self.all_genres and genre not in p.genres:
@@ -565,7 +615,8 @@ class PortCatalogDialog(RetroWindow):
                 continue
             text, tags = self._row(p)
             self.tree.insert("", "end", iid=p.key, text=text, tags=tags,
-                             values=(", ".join(p.genres[:2]), human(p.size), self._state(p)[0]))
+                             values=(", ".join(p.genres[:2]), p.updated if date_updated else p.added,
+                                     human(p.size), self._state(p)[0]))
         if self.shown and self.tree.exists(self.shown):
             self.tree.selection_set(self.shown)
             self.tree.see(self.shown)
