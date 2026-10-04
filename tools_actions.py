@@ -15,6 +15,8 @@ from tkinter import filedialog
 import bios
 import chd
 import core
+import dupes
+import health
 import i18n
 import importer
 import journal
@@ -48,6 +50,8 @@ class ToolsMixin:
                                (_("Compresser les jeux CD en CHD…"), self.compress_chd),
                                (_("Supprimer des vidéos…"), self.delete_videos_tool),
                                (_("Nettoyer la carte…"), self.cleanup),
+                               (_("Chercher les doublons…"), self.find_dupes),
+                               (_("Vérifier la carte SD…"), self.check_card),
                                (None, None),
                                (_("Catalogue PortMaster…"), self.port_catalog),
                                (_("Mises à jour des ports…"), self.port_updates),
@@ -415,6 +419,120 @@ class ToolsMixin:
             self._errors(errors, _("Certains jeux n'ont pas pu être compressés :"))
 
         self.run_in_background(_("Compression CHD"), "compress", len(picked), work, done, _("Compression CHD"))
+
+    # ------------------------------------------------------------ santé de la carte
+    def check_card(self):
+        """Relit toute la carte pour trouver les fichiers abîmés (les cartes d'origine lâchent souvent)."""
+        root = self.root_path
+        mb = 1 << 20
+        usage = core.disk_usage(root)
+        total_mb = max(1, (usage.total - usage.free) // mb)
+
+        def work(report, cancel):
+            def progress(read, total, path):
+                report(read // mb, f"{os.path.relpath(path, root)}  ·  {human(read)} / {human(total)}")
+            return health.check(root, progress, cancel)
+
+        self.run_in_background(_("Vérification de la carte"), "sd", total_mb, work,
+                               lambda result: self._card_report(root, result))
+
+    def _card_report(self, root, r):
+        titles = {"unreadable": _("Fichiers illisibles"), "corrupt": _("Archives abîmées"),
+                  "empty": _("ROM vides (0 octet)"), "gamelist": _("gamelist.xml abîmés"),
+                  "slow": _("Fichiers très lents à lire")}
+        by_kind = {k: [p for p in r.problems if p.kind == k] for k in titles}
+        broken = by_kind["unreadable"] or by_kind["corrupt"] or by_kind["gamelist"]
+        lines = []
+        if r.cancelled:
+            lines.append((_("Vérification arrêtée avant la fin : {n} fichiers vérifiés.", n=r.files), "warn"))
+        if broken:
+            lines.append(("⚠ " + _("La carte a des fichiers abîmés. Sauvegarde tes parties maintenant (Outils → "
+                                   "Sauvegarder mes parties) et pense à passer sur une carte neuve de bonne "
+                                   "qualité."), "bad"))
+        elif by_kind["slow"] or by_kind["empty"]:
+            lines.append(("⚠ " + _("Rien d'illisible, mais quelques points à surveiller."), "warn"))
+        else:
+            lines.append(("✓ " + _("Aucun problème : tous les fichiers se lisent correctement."), "ok"))
+        lines.append((_("{n} fichiers relus ({size}) en {minutes} min.", n=r.files, size=human(r.read),
+                        minutes=max(1, round(r.seconds / 60))), "muted"))
+        if r.speed:
+            slow = r.speed < health.SLOW_SPEED
+            lines.append((_("Vitesse de lecture moyenne : {speed}/s", speed=human(int(r.speed)))
+                          + ("  —  " + _("c'est lent : la carte est peut-être fatiguée ou de mauvaise qualité.")
+                             if slow else ""), "warn" if slow else "muted"))
+        advice = {"unreadable": _("Recopie ces fichiers depuis ton PC ; s'ils reviennent, la carte est en fin de vie."),
+                  "corrupt": _("Le contenu a changé sans que tu le touches : recopie ces jeux."),
+                  "empty": _("Copie interrompue : recopie ces jeux."),
+                  "gamelist": _("Les fiches de cette console sont perdues pour EmulationStation. "
+                                "Annule une opération récente ou recrée les fiches."),
+                  "slow": _("La carte peine à lire ces endroits : surveille-les.")}
+        for kind, title in titles.items():
+            found = by_kind[kind]
+            if found:
+                lines.append((T.px(f"{title} ({len(found)})"), "head"))
+                lines.append((advice[kind], "muted"))
+                lines += [("> " + os.path.relpath(p.path, root) + (f"   ({p.detail})" if p.detail else ""),
+                           "bad" if kind in ("unreadable", "corrupt", "gamelist") else "warn") for p in found[:200]]
+        ReportDialog(self, _("Vérification de la carte"), "sd",
+                     _("Chaque fichier de la carte a été relu en entier ; les .zip sont aussi contrôlés avec leur "
+                       "empreinte (CRC)."), lines).show()
+
+    # ------------------------------------------------------------ doublons
+    def find_dupes(self):
+        """Doublons sur toute la carte (copies identiques et versions d'un même jeu), meilleure copie gardée."""
+        games = self.games
+
+        def work(report, cancel):
+            return dupes.find(games, lambda done, total, name: report(done, _("Comparaison : {name}", name=name)),
+                              cancel)
+
+        self.run_in_background(_("Doublons"), "copy", None, work, self._dupes_found)
+
+    def _dupes_found(self, found):
+        if not found:
+            info(self, _("Doublons"), _("Aucun doublon sur la carte."))
+            return
+
+        def where(g):
+            return f"{g.name}  [{systems.name(g.system)}]"
+        items = []
+        for d in found:
+            what = (_("copie identique de : {name}", name=where(d.keep)) if d.kind == "copy"
+                    else _("autre version de : {name}", name=d.keep.stem))
+            if not d.checked:
+                what += "  ·  " + _("a des parties, une note ou est en favori")
+            items.append((f"{d.game.stem}  [{systems.name(d.game.system)}]", what, d.checked, d.game.size))
+        chosen = ChecklistDialog(self, _("Doublons"), "copy",
+                                 _("Pour chaque jeu en double, la meilleure copie est gardée : celle qui a des parties, "
+                                   "une note ou un favori, puis la meilleure région et la révision la plus récente. "
+                                   "Les copies cochées seront supprimées (elles passent par la corbeille)."),
+                                 items, _("SUPPRIMER"), "danger").show()
+        if not chosen:
+            return
+        plan = [(d.game, core.files_to_delete(d.game, self.games.get(d.game.system, [])))
+                for d in (found[i] for i in chosen)]
+        size = sum(core.path_size(p) for _g, files in plan for p in files)
+        root = self.root_path
+
+        def work(report, cancel):
+            errors = []
+            for i, (g, files) in enumerate(plan):
+                if cancel.is_set():
+                    break
+                report(i, _("Suppression : {name}", name=g.name))
+                errors += core.delete_game(root, g, files)
+            return errors
+
+        def done(errors):
+            gone = [g for g, _f in plan]
+            self._forget_games(gone)
+            n = sum(1 for g in gone if not os.path.exists(g.path))
+            self.flash(_n(n, "{n} doublon supprimé", "{n} doublons supprimés") + "  ·  "
+                       + _("{size} dans la corbeille", size=human(size)), T.GREEN)
+            self._errors(errors, _("Certains fichiers n'ont pas pu être supprimés :"))
+
+        self.run_in_background(_("Suppression"), "trash", len(plan), work, done,
+                               _n(len(plan), "Suppression de {n} doublon", "Suppression de {n} doublons"))
 
     # ------------------------------------------------------------ ports PortMaster
     def port_catalog(self):

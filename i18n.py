@@ -406,4 +406,40 @@ EN = {
     "RETIRER": "REMOVE", "{n} port retiré": "{n} port removed", "{n} ports retirés": "{n} ports removed",
     "Retrait de {n} port en attente": "Removing {n} pending port",
     "Retrait de {n} ports en attente": "Removing {n} pending ports",
+    # santé de la carte, doublons
+    "Chercher les doublons…": "Find duplicates…", "Vérifier la carte SD…": "Check the SD card…",
+    "Vérification de la carte": "Card check", "Fichiers illisibles": "Unreadable files",
+    "Archives abîmées": "Damaged archives", "ROM vides (0 octet)": "Empty ROMs (0 bytes)",
+    "gamelist.xml abîmés": "Damaged gamelist.xml", "Fichiers très lents à lire": "Very slow files",
+    "Vérification arrêtée avant la fin : {n} fichiers vérifiés.": "Check stopped before the end: {n} files checked.",
+    "La carte a des fichiers abîmés. Sauvegarde tes parties maintenant (Outils → Sauvegarder mes parties) et "
+    "pense à passer sur une carte neuve de bonne qualité.":
+        "The card has damaged files. Back up your saves now (Tools → Back up my saves) and consider moving to a "
+        "new good-quality card.",
+    "Rien d'illisible, mais quelques points à surveiller.": "Nothing unreadable, but a few things to watch.",
+    "Aucun problème : tous les fichiers se lisent correctement.": "No problem: every file reads correctly.",
+    "{n} fichiers relus ({size}) en {minutes} min.": "{n} files read ({size}) in {minutes} min.",
+    "Vitesse de lecture moyenne : {speed}/s": "Average read speed: {speed}/s",
+    "c'est lent : la carte est peut-être fatiguée ou de mauvaise qualité.":
+        "that is slow: the card may be worn out or of poor quality.",
+    "Recopie ces fichiers depuis ton PC ; s'ils reviennent, la carte est en fin de vie.":
+        "Copy these files again from your PC; if they come back, the card is dying.",
+    "Le contenu a changé sans que tu le touches : recopie ces jeux.":
+        "The content changed without you touching it: copy these games again.",
+    "Copie interrompue : recopie ces jeux.": "Interrupted copy: copy these games again.",
+    "Les fiches de cette console sont perdues pour EmulationStation. Annule une opération récente ou recrée les "
+    "fiches.": "EmulationStation loses the game cards of this console. Undo a recent operation or recreate the cards.",
+    "La carte peine à lire ces endroits : surveille-les.": "The card struggles to read these places: keep an eye on them.",
+    "Chaque fichier de la carte a été relu en entier ; les .zip sont aussi contrôlés avec leur empreinte (CRC).":
+        "Every file on the card was read in full; .zip files are also checked against their checksum (CRC).",
+    "Comparaison : {name}": "Comparing: {name}", "Aucun doublon sur la carte.": "No duplicates on the card.",
+    "copie identique de : {name}": "identical copy of: {name}", "autre version de : {name}": "other version of: {name}",
+    "a des parties, une note ou est en favori": "has saves, a rating or is a favorite",
+    "Pour chaque jeu en double, la meilleure copie est gardée : celle qui a des parties, une note ou un favori, "
+    "puis la meilleure région et la révision la plus récente. Les copies cochées seront supprimées (elles passent "
+    "par la corbeille).":
+        "For each duplicated game the best copy is kept: the one with saves, a rating or a favorite, then the best "
+        "region and the latest revision. Checked copies will be deleted (they go to the trash).",
+    "{n} doublon supprimé": "{n} duplicate deleted", "{n} doublons supprimés": "{n} duplicates deleted",
+    "Suppression de {n} doublon": "Deleting {n} duplicate", "Suppression de {n} doublons": "Deleting {n} duplicates",
 }
