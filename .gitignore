@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Exécutable (fabriqué par build.py / GitHub Actions)
+build/
+dist/
+*.spec
+
+# Fichiers créés par le programme en local
+cache/
+tools/
+# logos de consoles importés depuis les thèmes de TA carte : ils ne sont pas à nous, on ne les publie pas
+assets/logos/
+
+# Réglages locaux (éditeur / assistant)
+settings.local.json
+.claude/
+.vscode/
+
+# Ancien dépôt local séparé (pas une partie du projet)
+R36S manager/

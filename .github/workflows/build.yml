@@ -1,0 +1,61 @@
+# Teste puis fabrique les exécutables Windows et Linux.
+# - À chaque push : les exécutables sont disponibles dans l'onglet « Actions » (artefacts).
+# - Pour publier une version : git tag v1.0.0 && git push --tags  -> page « Releases ».
+name: Build
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-22.04]   # 22.04 : l'exécutable Linux marche aussi sur les distributions plus anciennes
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Dépendances
+        run: python -m pip install -r requirements.txt pyinstaller pytest
+
+      - name: Tests (sur une fausse carte)
+        run: python -m pytest -q
+
+      - name: Exécutable
+        run: python build.py
+
+      - name: Nommer l'exécutable Windows
+        if: runner.os == 'Windows'
+        run: Rename-Item dist/R36S-Game-Manager.exe R36S-Game-Manager-windows-x64.exe
+
+      - name: Archiver l'exécutable Linux
+        if: runner.os == 'Linux'
+        run: |
+          chmod +x dist/R36S-Game-Manager
+          tar -czf dist/R36S-Game-Manager-linux-x64.tar.gz -C dist R36S-Game-Manager
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: R36S-Game-Manager-${{ runner.os }}
+          path: |
+            dist/*.exe
+            dist/*.tar.gz
+
+      - name: Publier dans « Releases »
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.exe
+            dist/*.tar.gz

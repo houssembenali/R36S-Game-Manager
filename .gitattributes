@@ -1,0 +1,5 @@
+# Fins de ligne normalisées ; les scripts Linux gardent LF (sinon « bad interpreter » sous Linux)
+* text=auto
+*.sh text eol=lf
+*.yml text eol=lf
+*.bat text eol=crlf
