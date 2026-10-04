@@ -4,17 +4,19 @@ import zipfile
 
 import core
 import journal
+import ports
 
 # dossiers dont tout le contenu est une sauvegarde (PPSSPP)
 SAVE_TREES = {"savedata", "ppsspp_state"}
-SKIP_SYSTEMS = {"ports"}  # les ports gardent leurs sauvegardes dans leurs propres dossiers
+PORTS = "ports"  # les ports gardent leurs sauvegardes dans leurs propres dossiers (voir ports.save_files)
 
 
 def collect(root):
     """Tous les fichiers de sauvegarde de la carte (chemins absolus)."""
     out = []
     for system in core.list_systems(root):
-        if system.lower() in SKIP_SYSTEMS:
+        if system.lower() == PORTS:
+            out += ports.save_files(root)
             continue
         for dirpath, dirnames, files in os.walk(os.path.join(root, system)):
             dirnames[:] = [d for d in dirnames if d.lower() not in core.MEDIA_DIRS]

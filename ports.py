@@ -8,11 +8,13 @@
 - Installer = déposer le .zip dans ports/PortMaster/autoinstall : PortMaster l'installe lui-même
   au prochain lancement sur la console (il ajoute aussi les bibliothèques dont le port a besoin).
 """
+import hashlib
 import json
 import os
 import re
 import time
-from dataclasses import dataclass
+import zipfile
+from dataclasses import dataclass, field
 
 import core
 import journal
@@ -20,11 +22,15 @@ import net
 import paths
 
 CATALOG_URL = "https://github.com/PortsMaster/PortMaster-New/releases/latest/download/ports.json"
+GUI_RELEASE = "https://api.github.com/repos/PortsMaster/PortMaster-GUI/releases/latest"
 IMAGE_URL = "https://raw.githubusercontent.com/PortsMaster/PortMaster-New/main/ports/{dir}/{file}"
 CACHE = paths.data("cache", "portmaster-ports.json")
 CACHE_HOURS = 12
 ARCHS = {"aarch64", "armhf"}  # processeurs que la R36S sait faire tourner
 IGNORED_DIRS = {"portmaster", "autoinstall"} | core.MEDIA_DIRS
+# exigences du catalogue que la R36S (RK3326, 1 Go, ArkOS, OpenGL ES) ne remplit pas
+UNSUITED = ("power", "ultra", "2gb", "opengl", "!arkos")
+STORES = {"steam": "Steam", "gog": "GOG", "itch.io": "itch.io", "itch": "itch.io", "github": "GitHub"}
 
 
 @dataclass
@@ -44,6 +50,14 @@ class Port:
     added: str         # date d'arrivée du port dans PortMaster
     screenshot: str    # URL de la capture
     runtimes: list     # bibliothèques nécessaires (ex. « dotnet-8.0.12.squashfs »)
+    stores: list = field(default_factory=list)  # [(boutique, lien)] où trouver le jeu original
+    reqs: list = field(default_factory=list)    # exigences (« power », « 2gb »…)
+    exp: bool = False                           # port expérimental
+
+    @property
+    def unsuited(self):
+        """Exigences que la R36S ne remplit pas (voir UNSUITED)."""
+        return [r for r in self.reqs if r.lower() in UNSUITED]
 
     @property
     def key(self):
@@ -63,8 +77,45 @@ def _parse(data):
                         a.get("porter") or [], bool(a.get("rtr")), a.get("availability") == "paid",
                         src.get("size") or 0, src.get("url") or "", src.get("md5") or "", src.get("date_updated") or "",
                         src.get("date_added") or src.get("date_updated") or "",
-                        IMAGE_URL.format(dir=name[:-4], file=shot) if shot else "", a.get("runtime") or []))
+                        IMAGE_URL.format(dir=name[:-4], file=shot) if shot else "", a.get("runtime") or [],
+                        _stores(a), [r for r in a.get("reqs") or [] if r], bool(a.get("exp"))))
     return sorted(out, key=lambda p: p.title.lower())
+
+
+def _stores(attr):
+    """[(nom de la boutique, lien)] d'après « store » d'un port.json ou du catalogue."""
+    out = []
+    for s in attr.get("store") or []:
+        url = (s or {}).get("gameurl") or ""
+        if url.startswith("http"):
+            name = (s.get("name") or "").strip()
+            out.append((STORES.get(name.lower(), name or url.split("/")[2]), url))
+    return out
+
+
+_cached = {}
+
+
+def cached_catalog():
+    """Catalogue déjà téléchargé (sans réseau), [] s'il n'y en a pas encore."""
+    try:
+        mtime = os.path.getmtime(CACHE)
+        if _cached.get("mtime") != mtime:
+            with open(CACHE, encoding="utf-8") as f:
+                _cached.update(mtime=mtime, ports=_parse(json.load(f)))
+        return _cached["ports"]
+    except (OSError, ValueError):
+        return []
+
+
+def store_links(game):
+    """[(boutique, lien)] du jeu original d'un port installé : port.json, sinon catalogue déjà téléchargé."""
+    info = core.port_info(game.path)
+    links = _stores(info.get("attr") or {})
+    if links or not info.get("name"):
+        return links
+    entry = next((p for p in cached_catalog() if p.key == info["name"].lower()), None)
+    return entry.stores if entry else []
 
 
 def _read_catalog(force=False):
@@ -164,7 +215,7 @@ def download_runtime(root, runtime, report=None, cancel=None):
     """Installe un runtime dans PortMaster/libs (avec son fichier .md5, comme PortMaster)."""
     name, url, md5, _size = runtime
     dest = os.path.join(libs_dir(root), name)
-    if not _fetch(url, dest, report, cancel):
+    if not _fetch(url, dest, report, cancel, md5):
         return None
     journal.write_file(dest + ".md5", lambda p: _write_text(p, f"{md5}  {name}\n"))
     return dest
@@ -175,22 +226,27 @@ def _write_text(path, text):
         f.write(text)
 
 
-def _fetch(url, dest, report=None, cancel=None):
-    """Télécharge url vers dest (via un fichier .part, annulable). True si terminé."""
+def _fetch(url, dest, report=None, cancel=None, md5=""):
+    """Télécharge url vers dest (via un fichier .part, annulable). True si terminé.
+    md5 : empreinte attendue ; un fichier abîmé pendant le téléchargement n'arrive jamais sur la carte."""
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     part = dest + ".part"
-    done = 0
+    done, digest = 0, hashlib.md5()
     with net.open_url(url, timeout=60) as r, open(part, "wb") as f:
         while chunk := r.read(1 << 20):
             if cancel is not None and cancel.is_set():
                 break
             f.write(chunk)
+            digest.update(chunk)
             done += len(chunk)
             if report:
                 report(done)
     if cancel is not None and cancel.is_set():
         os.remove(part)
         return False
+    if md5 and digest.hexdigest().lower() != md5.lower():
+        os.remove(part)
+        raise OSError("téléchargement abîmé (empreinte md5 différente), réessaie")
     journal.write_file(dest, lambda p: os.replace(part, p))
     return True
 
@@ -236,16 +292,82 @@ def autoinstall_dir(root):
 
 def pending(root):
     """Ports déjà déposés en attente d'installation par PortMaster."""
+    return {os.path.basename(p).lower() for p in pending_files(root)}
+
+
+def pending_files(root):
+    """Chemins des .zip déposés dans autoinstall (ports et PortMaster.zip)."""
+    folder = autoinstall_dir(root)
     try:
-        return {f.lower() for f in os.listdir(autoinstall_dir(root)) if f.lower().endswith(".zip")}
+        return sorted((e.path for e in os.scandir(folder) if e.is_file() and e.name.lower().endswith(".zip")),
+                      key=str.lower)
     except OSError:
-        return set()
+        return []
 
 
 def download(root, port, report=None, cancel=None):
     """Dépose le .zip du port dans autoinstall (annulable via le journal). Retourne son chemin."""
     dest = os.path.join(autoinstall_dir(root), port.zip)
-    return dest if _fetch(port.url, dest, report, cancel) else None
+    return dest if _fetch(port.url, dest, report, cancel, port.md5) else None
+
+
+def is_port_zip(path):
+    """Archive de port PortMaster (un script .sh à la racine ou un port.json) ou PortMaster.zip."""
+    if os.path.basename(path).lower() == "portmaster.zip":
+        return True
+    try:
+        with zipfile.ZipFile(path) as z:
+            names = z.namelist()
+    except (OSError, zipfile.BadZipFile):
+        return False
+    return any(n.lower().endswith("/port.json") or ("/" not in n and n.lower().endswith(".sh")) for n in names)
+
+
+def add_zip(root, path):
+    """Dépose une archive de port déjà téléchargée dans autoinstall. Retourne son nouveau chemin."""
+    dest = os.path.join(autoinstall_dir(root), os.path.basename(path))
+    journal.copy(path, dest)
+    return dest
+
+
+# ---------------------------------------------------------------- PortMaster lui-même
+
+def portmaster_version(root):
+    """Version de PortMaster installée sur la carte (« 2025.03.07-1324 »), ou ""."""
+    try:
+        with open(os.path.join(ports_folder(root), "PortMaster", "version"), encoding="utf-8") as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
+def latest_portmaster():
+    """(version, url, md5, taille) de la dernière version de PortMaster publiée."""
+    data = json.loads(net.get(GUI_RELEASE, timeout=30))
+    assets = {a["name"]: a for a in data.get("assets", [])}
+    zip_asset = assets["PortMaster.zip"]
+    md5 = ""
+    if "PortMaster.zip.md5" in assets:
+        md5 = net.get(assets["PortMaster.zip.md5"]["browser_download_url"]).decode("ascii", "ignore").split()[0]
+    return data["tag_name"], zip_asset["browser_download_url"], md5, zip_asset.get("size", 0)
+
+
+def portmaster_update(root):
+    """Dernière version de PortMaster si elle est plus récente que celle de la carte, sinon None.
+    PortMaster se met à jour lui-même avec un PortMaster.zip déposé dans autoinstall."""
+    current = portmaster_version(root)
+    if not current or "portmaster.zip" in pending(root):
+        return None
+    try:
+        latest = latest_portmaster()
+    except (OSError, ValueError, KeyError, IndexError):
+        return None
+    return latest if latest[0] > current else None  # versions datées : l'ordre du texte suffit
+
+
+def download_portmaster(root, latest, report=None, cancel=None):
+    dest = os.path.join(autoinstall_dir(root), "PortMaster.zip")
+    return dest if _fetch(latest[1], dest, report, cancel, latest[2]) else None
 
 
 def catalog_screenshot(game):
@@ -292,12 +414,72 @@ def files_target(game):
     return os.path.join(folder, existing[0]) if existing else folder
 
 
+_PLACEHOLDER = re.compile(r"(\.txt|\.md|\.gitkeep|readme[^/\\]*)$", re.I)
+# fichiers du jeu cités dans les instructions (« data.win », « PINBALL.DAT », « oot.otr »…)
+_GAME_FILE = re.compile(r"(?<![\w/.-])([\w-]+\.(?:otr|pck|dat|wad|pak|pk3|pk4|apk|obb|exe|win|bin|gob|grp|mpq|vpk|"
+                        r"unx|ios|droid|assets|data))(?![\w.])", re.I)
+
+
+def _has_files(folder):
+    for _top, _dirs, files in os.walk(folder):
+        if any(not _PLACEHOLDER.search(f) for f in files):
+            return True
+    return False
+
+
+def files_missing(game):
+    """Les fichiers du jeu original d'un port sont-ils absents ? True / False, ou None si on ne peut pas
+    le savoir (port prêt à jouer, instructions sans dossier ni fichier précis)."""
+    req = requirements(game)
+    dirs = core.port_dirs(game.path) if req and not req[0] else []
+    if not dirs:
+        return None
+    target = files_target(game)
+    if os.path.normcase(target) != os.path.normcase(dirs[0]):  # un sous-dossier dédié (gamedata, assets…)
+        return not _has_files(target)
+    wanted = {n.lower() for n in _GAME_FILE.findall(req[1])}
+    if not wanted:
+        return None
+    present = {f.lower() for d in dirs for _top, _dirs, files in os.walk(d) for f in files}
+    return not wanted & present
+
+
 def folder_files(source):
     """[(chemin, chemin relatif)] de tous les fichiers d'un dossier."""
     out = []
     for top, _dirs, files in os.walk(source):
         out += [(os.path.join(top, f), os.path.relpath(os.path.join(top, f), source)) for f in files]
     return sorted(out, key=lambda x: x[1].lower())
+
+
+# ---------------------------------------------------------------- sauvegardes des ports
+
+SAVE_DIRS = {"conf", "savedata", "save", "saves", "savegame", "savegames", "userdata"}
+SAVE_EXTS = (".sav", ".srm", ".save", ".mps")
+SAVE_MAX = 20 << 20  # au-delà ce sont des données du jeu, pas une sauvegarde
+
+
+def save_files(root):
+    """Sauvegardes et réglages des ports (dossiers conf/, savedata/, save/… et fichiers .sav),
+    y compris ceux des dossiers de ports supprimés."""
+    out = []
+    try:
+        dirs = [e.path for e in os.scandir(ports_folder(root)) if e.is_dir() and e.name.lower() not in IGNORED_DIRS]
+    except OSError:
+        return []
+    for d in dirs:
+        for top, _subdirs, files in os.walk(d):
+            parts = {p.lower() for p in os.path.relpath(top, d).split(os.sep)}
+            in_save = bool(parts & SAVE_DIRS)
+            for f in files:
+                p = os.path.join(top, f)
+                if (in_save or f.lower().endswith(SAVE_EXTS)) and f.lower() not in ("port.json", ".gitkeep"):
+                    try:
+                        if os.path.getsize(p) <= SAVE_MAX:
+                            out.append(p)
+                    except OSError:
+                        pass
+    return out
 
 
 # ---------------------------------------------------------------- dossiers orphelins

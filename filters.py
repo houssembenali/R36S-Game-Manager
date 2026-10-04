@@ -6,9 +6,11 @@ une clé dans EMPTY, son test dans matches(), puis son contrôle dans la barre (
 import re
 
 import core
+import ports
 import regions
 
-EMPTY = {"genre": "", "players": 0, "region": "", "never": False, "noimage": False, "norating": False}
+EMPTY = {"genre": "", "players": 0, "region": "", "never": False, "noimage": False, "norating": False,
+         "nofiles": False}
 
 PLAYERS = {"Tous": 0, "1 joueur": 1, "2 joueurs et +": 2, "3 joueurs et +": 3, "4 joueurs et +": 4}
 
@@ -64,6 +66,8 @@ def matches(game, f):
     if f["never"] and game.playcount:
         return False
     if f["noimage"] and core.cover_for(game):
+        return False
+    if f["nofiles"] and (game.system.lower() != "ports" or ports.files_missing(game) is not True):
         return False
     return not (f["norating"] and game.rating is not None)
 

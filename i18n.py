@@ -376,4 +376,34 @@ EN = {
     "{n} fichier copié": "{n} file copied", "{n} fichiers copiés": "{n} files copied",
     "Certains fichiers n'ont pas pu être copiés :": "Some files could not be copied:",
     "Fichiers du jeu : {name}": "Game files: {name}",
+    "Gratuits et payants": "Free and paid", "Gratuits": "Free", "Payants": "Paid",
+    "Adaptés à la R36S seulement": "Suited to the R36S only", "Nouveautés seulement": "New only",
+    "nouveau": "new",
+    "demande une console plus puissante": "needs a more powerful console",
+    "demande 2 Go de mémoire (la R36S en a 1)": "needs 2 GB of memory (the R36S has 1)",
+    "demande OpenGL": "needs OpenGL", "ne fonctionne pas sous ArkOS": "does not work on ArkOS",
+    "Peut ne pas tourner sur la R36S : {reason}.": "May not run on the R36S: {reason}.",
+    "Port expérimental : il peut mal fonctionner.": "Experimental port: it may not work well.",
+    "VOIR SUR {store}": "VIEW ON {store}",
+    "Les fichiers du jeu ne sont pas encore sur la carte : ce port ne se lancera pas.":
+        "The game files are not on the card yet: this port will not start.",
+    "Les fichiers du jeu sont sur la carte.": "The game files are on the card.",
+    "Place sur la carte : {size} (dossier {folder}, fichiers du jeu compris).":
+        "Space on the card: {size} ({folder} folder, game files included).",
+    "Ports sans fichiers du jeu": "Ports without game files",
+    "Installer un port depuis un .zip…": "Install a port from a .zip…",
+    "Ports en attente d'installation…": "Ports waiting to be installed…",
+    "version {new} (sur la carte : {old})": "version {new} (on the card: {old})",
+    "La nouvelle version de PortMaster est prête.": "The new PortMaster version is ready.",
+    "Mise à jour de PortMaster": "PortMaster update",
+    "Ports à installer": "Ports to install", "Archives de ports": "Port archives",
+    "Ces archives ne sont pas des ports PortMaster :": "These archives are not PortMaster ports:",
+    "Ports en attente": "Pending ports", "Aucun port n'attend d'être installé.": "No port is waiting to be installed.",
+    "Ces ports seront installés au prochain lancement de PortMaster sur la console. "
+    "Coche ceux que tu ne veux plus installer : ils passent par la corbeille.":
+        "These ports will be installed the next time PortMaster is launched on the console. "
+        "Check the ones you no longer want to install: they go to the trash.",
+    "RETIRER": "REMOVE", "{n} port retiré": "{n} port removed", "{n} ports retirés": "{n} ports removed",
+    "Retrait de {n} port en attente": "Removing {n} pending port",
+    "Retrait de {n} ports en attente": "Removing {n} pending ports",
 }

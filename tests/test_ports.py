@@ -123,3 +123,84 @@ def test_delete_port_removes_all_its_folders_but_not_shared_ones(card):
     alone = [g for g in games if g is smb1]
     names = sorted(os.path.basename(p) for p in core.files_to_delete(smb1, alone))
     assert names == ["smb1.sh", "smconf", "smworld"]
+
+
+def test_catalog_stores_requirements_and_store_links(card):
+    entry = catalog_entry()
+    entry["attr"].update(reqs=["power", "analog_2"], exp=True,
+                         store=[{"name": "itch", "gameurl": "https://x.itch.io/sprout"}, {"name": "", "gameurl": ""}])
+    p = ports._parse({"ports": {"sprout.zip": entry}})[0]
+    assert p.stores == [("itch.io", "https://x.itch.io/sprout")] and p.unsuited == ["power"] and p.exp
+    g = add_port(card)
+    data = dict(PORT_JSON, attr=dict(PORT_JSON["attr"], store=[{"name": "Steam", "gameurl": "https://store/1"}]))
+    write(card, "ports/sprout/port.json", json.dumps(data))
+    core.clear_cache()
+    assert ports.store_links(g) == [("Steam", "https://store/1")]
+
+
+def test_files_missing(card):
+    g = add_port(card)  # « Copy data.win into ports/sprout. »
+    assert ports.files_missing(g) is True
+    write(card, "ports/sprout/data.win", b"x")
+    assert ports.files_missing(g) is False
+    data = dict(PORT_JSON, attr=dict(PORT_JSON["attr"], inst="Put the game files in sprout/gamedata."))
+    write(card, "ports/sprout/port.json", json.dumps(data))
+    write(card, "ports/sprout/gamedata/put game files here.txt", "")
+    core.clear_cache()
+    assert ports.files_missing(g) is True  # seulement le fichier d'explication
+    write(card, "ports/sprout/gamedata/game.pck", b"x")
+    assert ports.files_missing(g) is False
+    games = core.load_all(card)
+    import filters
+    assert filters.apply(games["ports"], dict(filters.EMPTY, nofiles=True)) == []
+
+
+def test_port_saves_are_backed_up(card):
+    add_port(card)
+    write(card, "ports/sprout/conf/settings.cfg", "x")
+    write(card, "ports/sprout/game.sav", b"s")
+    write(card, "ports/Removed Game/savedata/slot1", b"s")  # port supprimé : on garde ses parties
+    write(card, "ports/sprout/assets/level.dat", b"d")
+    import saves
+    rel = sorted(os.path.relpath(p, card).replace(os.sep, "/") for p in saves.collect(card) if "ports" in p)
+    assert rel == ["ports/Removed Game/savedata/slot1", "ports/sprout/conf/settings.cfg", "ports/sprout/game.sav"]
+
+
+def test_port_zip_install_and_pending(card, tmp_path):
+    import zipfile
+    good, bad = tmp_path / "game.zip", tmp_path / "roms.zip"
+    with zipfile.ZipFile(good, "w") as z:
+        z.writestr("Game.sh", "#!/bin/bash")
+        z.writestr("game/port.json", "{}")
+    with zipfile.ZipFile(bad, "w") as z:
+        z.writestr("mario.nes", "x")
+    assert ports.is_port_zip(str(good)) and not ports.is_port_zip(str(bad))
+    write(card, "ports/PortMaster/autoinstall/place-zips-here.txt", "")
+    ports.add_zip(card, str(good))
+    assert [os.path.basename(p) for p in ports.pending_files(card)] == ["game.zip"]
+    assert ports.pending(card) == {"game.zip"}
+
+
+def test_portmaster_update(card, monkeypatch):
+    write(card, "ports/PortMaster/version", "2025.03.07-1324\n")
+    write(card, "ports/PortMaster/autoinstall/.keep", "")
+    latest = ("2026.10.03-1041", "https://x/PortMaster.zip", "abc", 100)
+    monkeypatch.setattr(ports, "latest_portmaster", lambda: latest)
+    assert ports.portmaster_version(card) == "2025.03.07-1324"
+    assert ports.portmaster_update(card) == latest
+    monkeypatch.setattr(ports, "latest_portmaster", lambda: ("2025.03.07-1324",) + latest[1:])
+    assert ports.portmaster_update(card) is None
+
+
+def test_download_checks_md5(card, monkeypatch):
+    import contextlib
+    import hashlib
+    import io
+
+    import pytest
+    monkeypatch.setattr(ports.net, "open_url", lambda url, timeout=60: contextlib.closing(io.BytesIO(b"zipdata")))
+    dest = os.path.join(card, "ports", "x.zip")
+    with pytest.raises(OSError):
+        ports._fetch("u", dest, md5="0" * 32)
+    assert not os.path.exists(dest) and not os.path.exists(dest + ".part")
+    assert ports._fetch("u", dest, md5=hashlib.md5(b"zipdata").hexdigest()) and os.path.isfile(dest)

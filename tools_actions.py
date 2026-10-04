@@ -9,6 +9,7 @@ import os
 import subprocess
 import sys
 import tkinter as tk
+import webbrowser
 from tkinter import filedialog
 
 import bios
@@ -50,6 +51,8 @@ class ToolsMixin:
                                (None, None),
                                (_("Catalogue PortMaster…"), self.port_catalog),
                                (_("Mises à jour des ports…"), self.port_updates),
+                               (_("Installer un port depuis un .zip…"), self.install_port_zips),
+                               (_("Ports en attente d'installation…"), self.pending_ports),
                                (None, None),
                                (_("Sauvegarder mes parties sur le PC…"), self.backup_saves),
                                (_("Restaurer des parties…"), self.restore_saves),
@@ -210,7 +213,13 @@ class ToolsMixin:
                                _n(len(items), "Ajout de {n} jeu", "Ajout de {n} jeux"))
 
     def on_drop(self, event):
-        self.add_games(self.tk.splitlist(event.data))
+        files = list(self.tk.splitlist(event.data))
+        port_zips = [f for f in files if f.lower().endswith(".zip") and ports.is_port_zip(f)]
+        if port_zips:
+            self.install_port_zips(port_zips)
+        rest = [f for f in files if f not in port_zips]
+        if rest:
+            self.add_games(rest)
 
     # ------------------------------------------------------------ fiches depuis internet
     def enrich_games(self, games):
@@ -426,18 +435,21 @@ class ToolsMixin:
 
         def check(report, cancel):
             catalog = ports.load_catalog(force=True)
-            return catalog, ports.missing_installed_runtimes(root)
+            return catalog, ports.missing_installed_runtimes(root), ports.portmaster_update(root)
 
         def show(result):
-            catalog, libs = result
+            catalog, libs, pm = result
             waiting = ports.pending(root)
             found = [p for p in ports.updates(root, catalog) if p.key not in waiting]
-            if not found and not libs:
+            if not found and not libs and not pm:
                 info(self, _("Mises à jour des ports"), _("Tous les ports installés sont à jour."))
                 return
             items = [(p.title, _("version du {date}", date=p.updated) if p.updated else "", True, p.size)
                      for p in found]
             items += [(rt[0], _("bibliothèque manquante"), True, rt[3]) for rt in libs]
+            if pm:
+                items.append(("PortMaster", _("version {new} (sur la carte : {old})", new=pm[0][:10],
+                                              old=ports.portmaster_version(root)[:10]), True, pm[3]))
             text = _("Une version plus récente de ces ports existe. La nouvelle version remplace l'ancienne au "
                      "prochain lancement de PortMaster ; les fichiers du jeu et les sauvegardes sont gardés.")
             if libs:
@@ -445,17 +457,23 @@ class ToolsMixin:
             chosen = ChecklistDialog(self, _("Mises à jour des ports"), "download", text, items,
                                      _("METTRE À JOUR")).show()
             if chosen:
+                n = len(found) + len(libs)
                 self.install_ports([found[i] for i in chosen if i < len(found)],
-                                   [libs[i - len(found)] for i in chosen if i >= len(found)])
+                                   [libs[i - len(found)] for i in chosen if len(found) <= i < n],
+                                   pm if n in chosen else None)
         self.run_in_background(_("Mises à jour des ports"), "download", None, check, show)
 
-    def install_ports(self, chosen, extra_runtimes=()):
-        """Dépose les ports dans autoinstall et ajoute les runtimes manquants (la console n'a pas de Wi-Fi)."""
+    def install_ports(self, chosen, extra_runtimes=(), portmaster=None):
+        """Dépose les ports dans autoinstall et ajoute les runtimes manquants (la console n'a pas de Wi-Fi).
+        portmaster : nouvelle version de PortMaster à déposer aussi (il se met à jour au lancement)."""
         root = self.root_path
         runtimes = ports.missing_runtimes(root, chosen)
         runtimes += [rt for rt in extra_runtimes if rt[0] not in {r[0] for r in runtimes}]
         jobs = [(p.title, p.size, lambda r, c, p=p: ports.download(root, p, r, c)) for p in chosen]
         jobs += [(rt[0], rt[3], lambda r, c, rt=rt: ports.download_runtime(root, rt, r, c)) for rt in runtimes]
+        if portmaster:
+            jobs.append(("PortMaster", portmaster[3],
+                         lambda r, c: ports.download_portmaster(root, portmaster, r, c)))
 
         def work(report, cancel):
             errors, ok = [], 0
@@ -474,8 +492,11 @@ class ToolsMixin:
         def done(result):
             ok, errors = result
             self.refresh_usage()
-            if ok and chosen:
-                text = _n(len(chosen), "{n} port est prêt à être installé.", "{n} ports sont prêts à être installés.")
+            if ok and (chosen or portmaster):
+                text = (_n(len(chosen), "{n} port est prêt à être installé.", "{n} ports sont prêts à être installés.")
+                        if chosen else "")
+                if portmaster:
+                    text = (text + "\n" if text else "") + _("La nouvelle version de PortMaster est prête.")
                 if runtimes:
                     text += "\n" + _n(len(runtimes), "{n} bibliothèque nécessaire a aussi été ajoutée.",
                                        "{n} bibliothèques nécessaires ont aussi été ajoutées.")
@@ -487,8 +508,85 @@ class ToolsMixin:
             self._errors(errors, _("Certains téléchargements ont échoué :"))
 
         label = (_n(len(chosen), "Installation de {n} port", "Installation de {n} ports") if chosen
+                 else _("Mise à jour de PortMaster") if portmaster
                  else _n(len(runtimes), "Installation de {n} bibliothèque", "Installation de {n} bibliothèques"))
         self.run_in_background(_("Installation des ports"), "download", len(jobs), work, done, label)
+
+    def install_port_zips(self, files=None):
+        """Dépose des ports déjà téléchargés (.zip d'itch.io, de Discord…) dans autoinstall."""
+        if files is None:
+            files = filedialog.askopenfilenames(parent=self, title=_("Ports à installer"),
+                                                filetypes=[(_("Archives de ports"), "*.zip")])
+        if not files:
+            return
+        good = [f for f in files if ports.is_port_zip(f)]
+        bad = [os.path.basename(f) for f in files if f not in good]
+        root = self.root_path
+
+        def work(report, cancel):
+            errors = []
+            for i, f in enumerate(good):
+                if cancel.is_set():
+                    break
+                report(i, os.path.basename(f))
+                try:
+                    ports.add_zip(root, f)
+                except OSError as e:
+                    errors.append(f"{os.path.basename(f)} : {e}")
+            return errors
+
+        def done(errors):
+            self.refresh_usage()
+            n = len(good) - len(errors)
+            if n:
+                info(self, _("Ports PortMaster"),
+                     _n(n, "{n} port est prêt à être installé.", "{n} ports sont prêts à être installés."),
+                     _("Remets la carte dans la console et lance PortMaster (dans Ports ou Options) : il installe "
+                       "les ports déposés, qui apparaissent ensuite dans la liste Ports."))
+            self._errors(errors, _("Certains fichiers n'ont pas pu être copiés :"))
+
+        if bad:
+            info(self, _("Ports PortMaster"), _("Ces archives ne sont pas des ports PortMaster :"), "\n".join(bad))
+        if good:
+            self.run_in_background(_("Installation des ports"), "download", len(good), work, done,
+                                   _n(len(good), "Installation de {n} port", "Installation de {n} ports"))
+
+    def pending_ports(self):
+        """Ports déposés dans autoinstall et pas encore installés par PortMaster : on peut en retirer."""
+        files = ports.pending_files(self.root_path)
+        if not files:
+            info(self, _("Ports en attente"), _("Aucun port n'attend d'être installé."))
+            return
+        items = [(os.path.basename(f), "", False, core.path_size(f)) for f in files]
+        chosen = ChecklistDialog(self, _("Ports en attente"), "trash",
+                                 _("Ces ports seront installés au prochain lancement de PortMaster sur la console. "
+                                   "Coche ceux que tu ne veux plus installer : ils passent par la corbeille."),
+                                 items, _("RETIRER"), "danger").show()
+        if not chosen:
+            return
+        gone = [files[i] for i in chosen]
+
+        def work(report, cancel):
+            errors = []
+            for i, f in enumerate(gone):
+                report(i, os.path.basename(f))
+                try:
+                    journal.remove(f)
+                except OSError as e:
+                    errors.append(f"{os.path.basename(f)} : {e}")
+            return errors
+
+        def done(errors):
+            self.refresh_usage()
+            self.flash(_n(len(gone) - len(errors), "{n} port retiré", "{n} ports retirés"), T.GREEN)
+            self._errors(errors)
+
+        self.run_in_background(_("Ports en attente"), "trash", len(gone), work, done,
+                               _n(len(gone), "Retrait de {n} port en attente", "Retrait de {n} ports en attente"))
+
+    def open_store(self, url):
+        if url:
+            webbrowser.open(url)
 
     @staticmethod
     def needs_port_files(game):

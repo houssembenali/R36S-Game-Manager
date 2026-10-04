@@ -2,6 +2,7 @@
 import io
 import os
 import threading
+import webbrowser
 import tkinter as tk
 from tkinter import filedialog, ttk
 
@@ -470,6 +471,12 @@ class PortCatalogDialog(RetroWindow):
         self.catalog, self.have, self.waiting = catalog, have, waiting
         self.by_key = {p.key: p for p in catalog}
         self.marked, self.shots, self.shown = set(), {}, None
+        # badge « nouveau » : ports arrivés depuis la dernière ouverture du catalogue
+        self.seen = settings.get("port_seen") or ""
+        newest = max((p.added for p in catalog), default="")
+        if newest > self.seen:
+            settings.set("port_seen", newest)
+            settings.save()
         tk.Label(self.body, text=_("Les ports cochés sont copiés dans ports/PortMaster/autoinstall : PortMaster "
                                    "les installe au prochain lancement sur la console. Les « prêts à jouer » "
                                    "fonctionnent tout de suite ; les autres demandent les fichiers du jeu original."),
@@ -483,8 +490,11 @@ class PortCatalogDialog(RetroWindow):
         tk.Entry(bar, textvariable=self.query, bg=T.PANEL2, fg=T.TEXT, insertbackground=T.CYAN, relief="flat",
                  font=T.F["body"], width=28, highlightthickness=1, highlightbackground=T.BORDER,
                  highlightcolor=T.CYAN).pack(side="left", padx=(8, 18), ipady=3)
-        self.rtr_only = tk.BooleanVar(value=True)
-        RetroCheck(bar, _("Prêts à jouer seulement"), self.rtr_only, command=self._fill).pack(side="left")
+        self.prices = [_("Gratuits et payants"), _("Gratuits"), _("Payants")]
+        self.price = ttk.Combobox(bar, values=self.prices, state="readonly", width=18, font=T.F["body"])
+        self.price.current(0)
+        self.price.bind("<<ComboboxSelected>>", lambda e: self._fill())
+        self.price.pack(side="left")
         self.all_genres = _("Tous les genres")
         genres = sorted({g for p in catalog for g in p.genres})
         self.genre = ttk.Combobox(bar, values=[self.all_genres] + genres, state="readonly", width=16,
@@ -514,6 +524,13 @@ class PortCatalogDialog(RetroWindow):
         self.sort_box.bind("<<ComboboxSelected>>",
                            lambda e: self._set_sort(self.sorts[self.sort_box.current()][0]))
         self.sort_box.pack(side="left", padx=(8, 0))
+        checks = tk.Frame(self.body, bg=T.PANEL)
+        checks.pack(fill="x", pady=(0, 8))
+        self.rtr_only, self.suited_only, self.new_only = (tk.BooleanVar(value=v) for v in (True, True, False))
+        for text, var in ((_("Prêts à jouer seulement"), self.rtr_only),
+                          (_("Adaptés à la R36S seulement"), self.suited_only),
+                          (_("Nouveautés seulement"), self.new_only)):
+            RetroCheck(checks, text, var, command=self._fill).pack(side="left", padx=(0, 22))
 
         main = tk.Frame(self.body, bg=T.PANEL)
         main.pack(fill="both", expand=True)
@@ -535,6 +552,7 @@ class PortCatalogDialog(RetroWindow):
         self.tree.tag_configure("marked", foreground=T.GREEN)
         self.tree.tag_configure("installed", foreground=T.MUTED)
         self.tree.tag_configure("update", foreground=T.YELLOW)
+        self.tree.tag_configure("new", foreground=T.CYAN)
         self.tree.bind("<<TreeviewSelect>>", lambda e: self._preview())
         self.tree.bind("<Double-1>", lambda e: self._toggle())
         self.tree.bind("<space>", lambda e: self._toggle())
@@ -554,6 +572,7 @@ class PortCatalogDialog(RetroWindow):
         self.text.tag_configure("warn", foreground=T.YELLOW)
         self.text.tag_configure("muted", foreground=T.MUTED)
         self.text.pack(fill="both", expand=True)
+        self.store_btn = PixelButton(side, "", command=self._open_store)
         self.mark_btn = PixelButton(side, _("COCHER"), command=self._toggle)
         self.mark_btn.pack(fill="x", pady=(8, 0))
 
@@ -594,7 +613,17 @@ class PortCatalogDialog(RetroWindow):
             if self.have[p.key] and p.md5 and self.have[p.key] != p.md5:
                 return _("mise à jour"), "update"
             return _("installé"), "installed"
+        if self._is_new(p):
+            return _("nouveau"), "new"
         return "", ""
+
+    def _is_new(self, p):
+        return bool(self.seen) and p.added > self.seen
+
+    def _open_store(self):
+        p = self.by_key.get(self.shown)
+        if p and p.stores:
+            webbrowser.open(p.stores[0][1])
 
     def _row(self, p):
         marked = p.key in self.marked
@@ -606,9 +635,17 @@ class PortCatalogDialog(RetroWindow):
         genre = self.genre.get()
         self.tree.delete(*self.tree.get_children())
         date_updated = self.sort_id == "updated"
+        price = self.price.current()
         for p in self._sorted():
-            if self.rtr_only.get() and not p.rtr and p.key not in self.marked:
-                continue
+            if p.key not in self.marked:  # un port coché reste visible quels que soient les filtres
+                if self.rtr_only.get() and not p.rtr:
+                    continue
+                if self.suited_only.get() and (p.unsuited or p.exp):
+                    continue
+                if self.new_only.get() and not self._is_new(p):
+                    continue
+                if price and p.paid != (price == 2):
+                    continue
             if genre != self.all_genres and genre not in p.genres:
                 continue
             if q and q not in p.title.lower() and q not in p.desc.lower():
@@ -659,12 +696,26 @@ class PortCatalogDialog(RetroWindow):
             t.insert("end", "\n")
         if p.paid:
             t.insert("end", _("Le jeu original est payant.") + "\n\n", "warn")
+        reasons = {"power": _("demande une console plus puissante"), "ultra": _("demande une console plus puissante"),
+                   "2gb": _("demande 2 Go de mémoire (la R36S en a 1)"), "opengl": _("demande OpenGL"),
+                   "!arkos": _("ne fonctionne pas sous ArkOS")}
+        for r in dict.fromkeys(reasons[u.lower()] for u in p.unsuited):
+            t.insert("end", "⚠ " + _("Peut ne pas tourner sur la R36S : {reason}.", reason=r) + "\n", "warn")
+        if p.exp:
+            t.insert("end", "⚠ " + _("Port expérimental : il peut mal fonctionner.") + "\n", "warn")
+        if p.unsuited or p.exp:
+            t.insert("end", "\n")
         t.insert("end", p.desc.strip() + "\n\n")
         if p.porter:
             t.insert("end", _("Porté par : {names}", names=", ".join(p.porter)) + "\n", "muted")
         if p.updated:
             t.insert("end", _("Mis à jour le {date}", date=p.updated) + "\n", "muted")
         t.configure(state="disabled")
+        if p.stores:
+            self.store_btn.set_text(_("VOIR SUR {store}", store=p.stores[0][0].upper()))
+            self.store_btn.pack(fill="x", pady=(8, 0), before=self.mark_btn)
+        else:
+            self.store_btn.pack_forget()
         self._show_shot(p)
 
     def _show_shot(self, p):

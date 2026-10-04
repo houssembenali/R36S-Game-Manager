@@ -289,7 +289,8 @@ class App(ToolsMixin, BaseTk):
         row2 = tk.Frame(bar, bg=T.PANEL2)
         row2.pack(fill="x", pady=(10, 0))
         self.filter_checks = {}
-        for key, label in (("never", _("Jamais joué")), ("noimage", _("Sans image")), ("norating", _("Sans note"))):
+        for key, label in (("never", _("Jamais joué")), ("noimage", _("Sans image")), ("norating", _("Sans note")),
+                           ("nofiles", _("Ports sans fichiers du jeu"))):
             var = tk.BooleanVar(value=False)
             check = RetroCheck(row2, label, var, command=self._read_filters, bg=T.PANEL2)
             check.pack(side="left", padx=(0, 22))
@@ -404,9 +405,12 @@ class App(ToolsMixin, BaseTk):
                                       command=lambda: self.toggle_favorites(None))
         self.meta = tk.Frame(f, bg=T.PANEL)
         self.meta.pack(fill="x", pady=(10, 6))
-        self.detail_port_files = PixelButton(f, _("AJOUTER LES FICHIERS DU JEU…"), icon="plus",
+        self.port_row = tk.Frame(f, bg=T.PANEL)  # boutons d'un port : fichiers du jeu, boutique
+        self.detail_port_files = PixelButton(self.port_row, _("AJOUTER LES FICHIERS DU JEU…"), icon="plus",
                                              command=self.add_port_files)
         Tooltip(self.detail_port_files, _("Copie les fichiers du jeu original (acheté ou téléchargé) dans le port"))
+        self.detail_store = PixelButton(self.port_row, "", command=lambda: self.open_store(self._store_url))
+        self._store_url = ""
 
         self.desc = tk.Text(f, wrap="word", bg=T.PANEL, fg=T.TEXT, font=T.F["small"], relief="flat", height=1,
                             highlightthickness=0, bd=0, cursor="arrow", spacing2=2, state="disabled")
@@ -829,10 +833,7 @@ class App(ToolsMixin, BaseTk):
         else:
             self.detail_fav.pack_forget()
             self.detail_edit.pack_forget()
-        if len(sel) == 1 and self.needs_port_files(sel[0]):
-            self.detail_port_files.pack(anchor="w", pady=(0, 8), before=self.desc)
-        else:
-            self.detail_port_files.pack_forget()
+        self._show_port_buttons(sel[0] if len(sel) == 1 else None)
         if len(sel) != 1:
             self.chip.configure(text="", image="")
             if sel:
@@ -877,6 +878,23 @@ class App(ToolsMixin, BaseTk):
         parts += [(f"> {os.path.relpath(p, g.sysdir)}\n", "file") for p in files]
         self._write_desc(parts)
 
+    def _show_port_buttons(self, g):
+        """Sous la fiche d'un port : « ajouter les fichiers du jeu » et « voir sur Steam/GOG/itch.io »."""
+        files = bool(g) and self.needs_port_files(g)
+        links = ports.store_links(g) if g and g.system.lower() == "ports" else []
+        self.detail_port_files.pack_forget()
+        self.detail_store.pack_forget()
+        if files:
+            self.detail_port_files.pack(side="left", padx=(0, 8))
+        if links:
+            self._store_url = links[0][1]
+            self.detail_store.set_text(_("VOIR SUR {store}", store=links[0][0].upper()))
+            self.detail_store.pack(side="left")
+        if files or links:
+            self.port_row.pack(fill="x", pady=(0, 8), before=self.desc)
+        else:
+            self.port_row.pack_forget()
+
     @staticmethod
     def _port_parts(g):
         """Encadré d'un port PortMaster : prêt à jouer ou fichiers du jeu original à fournir."""
@@ -889,12 +907,22 @@ class App(ToolsMixin, BaseTk):
             parts.append(("✓ " + _("Prêt à jouer : aucun fichier à fournir.") + "\n", "ok"))
         else:
             parts.append(("⚠ " + _("Ce port a besoin des fichiers du jeu original.") + "\n", "warn"))
+            missing = ports.files_missing(g)
+            if missing:
+                parts.append(("⚠ " + _("Les fichiers du jeu ne sont pas encore sur la carte : ce port ne se "
+                                       "lancera pas.") + "\n", "warn"))
+            elif missing is False:
+                parts.append(("✓ " + _("Les fichiers du jeu sont sur la carte.") + "\n", "ok"))
             if inst:
                 parts.append((inst + "\n", None))  # instructions du port (en anglais, telles que fournies)
         if paid:
             parts.append((_("Le jeu original est payant.") + "\n", "file"))
         if porter:
             parts.append((_("Porté par : {names}", names=", ".join(porter)) + "\n", "file"))
+        dirs = core.port_dirs(g.path)
+        if dirs:
+            parts.append((_("Place sur la carte : {size} (dossier {folder}, fichiers du jeu compris).",
+                            size=human(g.size), folder=", ".join(os.path.basename(d) for d in dirs)) + "\n", "file"))
         return parts
 
     # ================================================================ actions
