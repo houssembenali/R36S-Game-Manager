@@ -10,7 +10,7 @@ import paths
 
 FILE = paths.data("settings.json")
 DEFAULTS = {
-    "language": "",          # "" = langue du système
+    "language": "",          # "" = anglais (langue par défaut)
     "view": "grid",
     "sort": "name_asc",
     "port_sort": "name",     # tri du catalogue PortMaster

@@ -14,6 +14,7 @@ from PIL import Image, ImageTk
 import cleanup
 import core
 import filters
+import i18n
 import icons
 import journal
 import logos
@@ -36,22 +37,33 @@ FAV = "__fav__"
 DUP = "__dup__"
 DETAIL_IMG = (340, 255)
 VIDEO_DELAY = 3000  # ms de sélection avant de lancer la vidéo du jeu
-SORTS = {  # identifiant -> (libellé, clé de tri, ordre inverse)
-    "name_asc": (_("Nom A → Z"), lambda g: g.name.lower(), False),
-    "name_desc": (_("Nom Z → A"), lambda g: g.name.lower(), True),
-    "rating": (_("Mieux notés"), lambda g: (g.rating if g.rating is not None else -1, g.name.lower()), True),
-    "played": (_("Plus joués"), lambda g: (g.playcount, g.name.lower()), True),
-    "recent": (_("Derniers joués"), lambda g: (g.lastplayed or datetime.datetime.min, g.name.lower()), True),
-    "big": (_("Plus gros"), lambda g: g.size, True),
-    "small": (_("Plus petits"), lambda g: g.size, False),
-    "system": (_("Système"), lambda g: (systems.name(g.system).lower(), g.name.lower()), False),
+SORTS = {  # identifiant -> (clé de tri, ordre inverse)
+    "name_asc": (lambda g: g.name.lower(), False),
+    "name_desc": (lambda g: g.name.lower(), True),
+    "rating": (lambda g: (g.rating if g.rating is not None else -1, g.name.lower()), True),
+    "played": (lambda g: (g.playcount, g.name.lower()), True),
+    "recent": (lambda g: (g.lastplayed or datetime.datetime.min, g.name.lower()), True),
+    "big": (lambda g: g.size, True),
+    "small": (lambda g: g.size, False),
+    "system": (lambda g: (systems.name(g.system).lower(), g.name.lower()), False),
 }
-# Légende de la jauge de la carte : (clé, libellé, couleur)
-USAGE = (("games", _("Jeux"), T.CYAN), ("images", _("Images"), T.MAGENTA), ("videos", _("Vidéos"), T.YELLOW),
-         ("trash", _("Corbeille"), T.ORANGE))
+# Légende de la jauge de la carte : clé -> couleur
+USAGE = {"games": T.CYAN, "images": T.MAGENTA, "videos": T.YELLOW, "trash": T.ORANGE}
+
+
+# les libellés sont traduits à l'affichage : la langue peut changer pendant que le programme tourne
+def sort_labels():
+    return {"name_asc": _("Nom A → Z"), "name_desc": _("Nom Z → A"), "rating": _("Mieux notés"),
+            "played": _("Plus joués"), "recent": _("Derniers joués"), "big": _("Plus gros"),
+            "small": _("Plus petits"), "system": _("Système")}
+
+
+def usage_labels():
+    return {"games": _("Jeux"), "images": _("Images"), "videos": _("Vidéos"), "trash": _("Corbeille")}
 OTHER_COLOR = "#5a5480"  # le reste (bios, thèmes, système…)
-HINTS = [_("Clic : sélectionner"), _("Ctrl/Maj + clic : sélection multiple"), _("F ou ★ : favori"),
-         _("Suppr : supprimer"), _("Double-clic : ouvrir le dossier"), _("Ctrl+F : rechercher")]
+def hints():
+    return [_("Clic : sélectionner"), _("Ctrl/Maj + clic : sélection multiple"), _("F ou ★ : favori"),
+            _("Suppr : supprimer"), _("Double-clic : ouvrir le dossier"), _("Ctrl+F : rechercher")]
 
 
 def played_text(count):
@@ -118,6 +130,12 @@ class App(ToolsMixin, BaseTk):
         self._photo = None
         self._flash_job = None
 
+        self._build_ui()
+        self.after(400, self._restore_panes)
+        self.refresh_drives()
+
+    # ================================================================ construction
+    def _build_ui(self):
         self._build_header()
         T.neon_line(self)
         self._build_footer()
@@ -129,10 +147,43 @@ class App(ToolsMixin, BaseTk):
         self._bind_keys()
         self.set_view(self.view)
         self.set_selection([])
-        self.after(400, self._restore_panes)
-        self.refresh_drives()
 
-    # ================================================================ construction
+    def rebuild_ui(self):
+        """Reconstruit la fenêtre (après un changement de langue) sans relire la carte : la console
+        affichée, la sélection, la recherche, les filtres et la place des panneaux sont gardés."""
+        self._stop_video()
+        self.video.release()
+        try:
+            panes = [self.body.sash_coord(i)[0] for i in range(2)]
+        except tk.TclError:
+            panes = []
+        selection, search, drive = list(self.selection), self.search_var.get(), self.drive_var.get()
+        saved_filters, filters_open, usage = dict(self.filters), self.filter_bar.winfo_ismapped(), dict(self.usage)
+        if self._flash_job:
+            self.after_cancel(self._flash_job)
+            self._flash_job = None
+        for w in self.winfo_children():
+            if not isinstance(w, tk.Toplevel):
+                w.destroy()
+        self._build_ui()
+        self.drive_cb["values"] = list(self.drive_map)
+        self.drive_var.set(drive)
+        self.filters = saved_filters
+        for key, (var, check) in self.filter_checks.items():
+            var.set(saved_filters[key])
+            check._paint()
+        if filters_open:
+            self.toggle_filter_bar()
+        self.usage.update(usage)
+        self.selection = selection
+        self.search_var.set(search)
+        if self.root_path:
+            self.refresh_history()
+            self.fill_systems(self.current)
+        for i, x in enumerate(panes):
+            self.after(50, lambda i=i, x=x: self.body.sash_place(i, x, 0))
+        self.flash(i18n.LANGUAGES[i18n.LANG], T.GREEN)
+
     def _build_header(self):
         bar = tk.Frame(self, bg=T.PANEL, padx=18, pady=12)
         bar.pack(fill="x")
@@ -179,6 +230,13 @@ class App(ToolsMixin, BaseTk):
         clear.pack(side="left", padx=12)
         clear.bind("<Button-1>", lambda e: self.search_var.set(""))
 
+        self.lang_btn = tk.Label(bar, image=icons.flags([i18n.FLAGS[i18n.LANG]], 3), bg=T.PANEL, cursor="hand2",
+                                 padx=4, pady=4, highlightthickness=2, highlightbackground=T.BORDER)
+        self.lang_btn.pack(side="right", padx=(22, 0))
+        self.lang_btn.bind("<Button-1>", lambda e: self.show_language_menu())
+        self.lang_btn.bind("<Enter>", lambda e: self.lang_btn.configure(highlightbackground=T.CYAN))
+        self.lang_btn.bind("<Leave>", lambda e: self.lang_btn.configure(highlightbackground=T.BORDER))
+        Tooltip(self.lang_btn, i18n.LANGUAGES[i18n.LANG])
         hp = tk.Frame(bar, bg=T.PANEL)
         hp.pack(side="right")
         top = tk.Frame(hp, bg=T.PANEL)
@@ -192,7 +250,8 @@ class App(ToolsMixin, BaseTk):
         legend.pack(anchor="e")
         self.usage = {}  # catégorie -> octets ; None tant que le calcul n'est pas fini
         self.usage_lbl = {}
-        for key, label, color in USAGE:
+        for key, label in usage_labels().items():
+            color = USAGE[key]
             tk.Label(legend, text="■", font=T.F["small"], fg=color, bg=T.PANEL).pack(side="left", padx=(12, 3))
             tk.Label(legend, text=label, font=T.F["small"], fg=T.MUTED, bg=T.PANEL).pack(side="left")
             self.usage_lbl[key] = tk.Label(legend, text="…", font=T.F["small"], fg=T.TEXT, bg=T.PANEL)
@@ -256,12 +315,13 @@ class App(ToolsMixin, BaseTk):
         self.btn_images = PixelButton(top, _("IMAGES"), icon="download", command=self.download_images)
         self.btn_images.pack(side="right", padx=(0, 14))
         Tooltip(self.btn_images, _("Télécharger depuis internet les images des jeux affichés qui n'en ont pas"))
-        self.sort_var = tk.StringVar(value=SORTS[self.sort_id][0])
-        sort = ttk.Combobox(top, textvariable=self.sort_var, values=[v[0] for v in SORTS.values()],
+        labels = sort_labels()
+        self.sort_var = tk.StringVar(value=labels[self.sort_id])
+        sort = ttk.Combobox(top, textvariable=self.sort_var, values=list(labels.values()),
                             state="readonly", width=13, font=T.F["body"])
         sort.pack(side="right", padx=(8, 18))
         sort.bind("<<ComboboxSelected>>", lambda e: self.set_sort(
-            next(k for k, v in SORTS.items() if v[0] == self.sort_var.get())))
+            next(k for k, v in sort_labels().items() if v == self.sort_var.get())))
 
         self._build_filter_bar(f)
         self.content = tk.Frame(f, bg=T.BG)
@@ -556,7 +616,7 @@ class App(ToolsMixin, BaseTk):
             return
         self.usage["games"] = sum(g.size for lst in self.games.values() for g in lst)
         parts, known = [], 0
-        for key, _label, color in USAGE:
+        for key, color in USAGE.items():
             size = self.usage.get(key)
             self.usage_lbl[key].configure(text=human(size) if size is not None else "…")
             if size:
@@ -610,7 +670,7 @@ class App(ToolsMixin, BaseTk):
         if words:
             games = [g for g in games if all(w in f"{g.name} {g.filename}".lower() for w in words)]
         games = filters.apply(games, self.filters)
-        _label, key, reverse = SORTS[self.sort_id]
+        key, reverse = SORTS[self.sort_id]
         games.sort(key=key, reverse=reverse)
         if self.current == DUP:  # les copies d'un même jeu côte à côte
             games.sort(key=lambda g: (g.system, core.title_key(g.stem)))
@@ -681,7 +741,7 @@ class App(ToolsMixin, BaseTk):
 
     def set_sort(self, sort_id):
         self.sort_id = sort_id
-        self.sort_var.set(SORTS[sort_id][0])
+        self.sort_var.set(sort_labels()[sort_id])
         self.fill_games()
 
     def focus_games(self):
@@ -729,7 +789,7 @@ class App(ToolsMixin, BaseTk):
             self.status.configure(text=_n(n, "{n} jeu sélectionné", "{n} jeux sélectionnés") + f"  ·  {size}",
                                   fg=T.CYAN)
         else:
-            self.status.configure(text="   ·   ".join(HINTS), fg=T.MUTED)
+            self.status.configure(text="   ·   ".join(hints()), fg=T.MUTED)
 
     def flash(self, text, color, keep=False):
         """Message temporaire dans la barre d'état."""
@@ -845,7 +905,7 @@ class App(ToolsMixin, BaseTk):
                 self._set_image(None, icons.icon("gamepad", T.BORDER, 12), T.BORDER)
                 self.title_lbl.configure(text=T.px(_("Sélectionne un jeu")))
                 self._set_meta([])
-                self._write_desc([(_("ASTUCES") + "\n", "head"), ("\n".join(HINTS), "file")])
+                self._write_desc([(_("ASTUCES") + "\n", "head"), ("\n".join(hints()), "file")])
             return
 
         g = sel[0]

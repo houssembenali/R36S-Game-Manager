@@ -6,8 +6,6 @@ Textes affichés : via _() / _n() (voir i18n.py).
 """
 import datetime
 import os
-import subprocess
-import sys
 import tkinter as tk
 import webbrowser
 import zipfile
@@ -20,12 +18,12 @@ import dupes
 import gamecat
 import health
 import i18n
+import icons
 import importer
 import journal
 import metadata
 import multidisc
 import net
-import paths
 import ports
 import saves
 import scraper
@@ -74,12 +72,6 @@ class ToolsMixin:
                 m.add_separator()
             else:
                 m.add_command(label="  " + label, command=command, state="normal" if ready else "disabled")
-        m.add_separator()
-        lang = self._menu()
-        for code, name in i18n.LANGUAGES.items():
-            lang.add_command(label=("  ✓ " if code == i18n.LANG else "     ") + name,
-                             command=lambda c=code: self.change_language(c))
-        m.add_cascade(label="  " + _("Langue") + " / Language", menu=lang)
         m.tk_popup(widget.winfo_rootx(), widget.winfo_rooty() + widget.winfo_height())
 
     def show_context_menu(self, event):
@@ -107,21 +99,23 @@ class ToolsMixin:
         m.add_command(label="  " + _("Supprimer…"), command=self.delete_selected)
         m.tk_popup(event.x_root, event.y_root)
 
+    def show_language_menu(self):
+        """Clic sur le drapeau : les langues, chacune avec son drapeau."""
+        m = self._menu()
+        for code, name in i18n.LANGUAGES.items():
+            m.add_command(label=f"  {name}" + ("   ✓" if code == i18n.LANG else ""), compound="left",
+                          image=icons.flags([i18n.FLAGS[code]], 2), command=lambda c=code: self.change_language(c))
+        w = self.lang_btn
+        m.tk_popup(w.winfo_rootx(), w.winfo_rooty() + w.winfo_height())
+
     def change_language(self, code):
-        """Change la langue : elle s'applique au prochain démarrage (proposé tout de suite)."""
+        """Change la langue tout de suite, sans question ni redémarrage, et la garde pour la prochaine fois."""
         if code == i18n.LANG:
             return
+        i18n.set_language(code)
         settings.set("language", code)
         self.save_settings()
-        i18n.set_language(code)  # pour que la question soit posée dans la nouvelle langue
-        if _dialog(self, _("Langue"), _("La langue sera changée au redémarrage du programme."), "",
-                   [(_("PLUS TARD"), "normal", False), (_("REDÉMARRER"), "normal", True)], T.CYAN, "menu"):
-            self.restart()
-
-    def restart(self):
-        args = [sys.executable] if paths.FROZEN else [sys.executable, os.path.abspath(sys.argv[0])]
-        subprocess.Popen(args)
-        self.quit_app()
+        self.rebuild_ui()
 
     # ------------------------------------------------------------ utilitaires
     def reload_systems(self, names):

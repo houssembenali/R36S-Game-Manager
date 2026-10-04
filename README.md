@@ -37,7 +37,7 @@
   <img src="docs/screen-filters.jpg" width="49%" alt="Filters">
 </p>
 
-> 🌍 Interface in **English** and **French** (follows your system language, switch it in *TOOLS → Language*). Your view, sort order, panel sizes and video sound are remembered.
+> 🌍 Interface in **English** (default) and **French**: click the flag at the top right to switch instantly, no restart. Your language, view, sort order, panel sizes and video sound are remembered.
 
 ## 📥 Download
 

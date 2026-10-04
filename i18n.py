@@ -7,25 +7,16 @@ Dans le code, les textes restent écrits en français, entourés de _() :
 Pour traduire un nouveau texte : ajouter sa version anglaise dans EN (en bas du fichier).
 Le test tests/test_i18n.py signale tout texte oublié.
 
-La langue est choisie au démarrage (réglage « language », sinon langue du système) ;
-la changer demande de relancer le programme.
+Langue : anglais par défaut, puis celle choisie avec le drapeau en haut de la fenêtre (gardée
+dans le réglage « language »). Elle change tout de suite : la fenêtre est reconstruite, les
+textes étant traduits au moment où ils sont affichés (jamais une fois pour toutes au démarrage).
 """
-import locale
-
 import settings
 
-LANGUAGES = {"fr": "Français", "en": "English"}
+LANGUAGES = {"en": "English", "fr": "Français"}
+FLAGS = {"en": "gb", "fr": "fr"}  # drapeau de chaque langue (icons.FLAGS)
 
-
-def _system_language():
-    try:
-        name = (locale.getlocale()[0] or "").lower()
-    except ValueError:
-        name = ""
-    return "fr" if name.startswith("fr") or name.startswith("french") else "en"
-
-
-LANG = settings.get("language") if settings.get("language") in LANGUAGES else _system_language()
+LANG = settings.get("language") if settings.get("language") in LANGUAGES else "en"
 
 
 def set_language(code):
