@@ -180,7 +180,7 @@ def _homebrew(system, report=None, cancel=None):
         shots = h.get("screenshots") or []
         ext = os.path.splitext(rom["filename"])[1].lower()
         tags = [t for t in h.get("tags") or [] if ":" not in t]  # « event:gbajam26 » n'est pas un genre
-        title = (h.get("title") or slug).strip()
+        title = re.sub(r"^\((?:game boy|gb|gbc|gba|nes)[^)]*\)\s*", "", (h.get("title") or slug).strip(), flags=re.I)
         out.append(Entry(
             title, system.lower(), core.title_key(title),
             desc=(h.get("description") or "").strip(), developer=_text(h.get("developer")),
