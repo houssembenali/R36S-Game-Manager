@@ -265,25 +265,29 @@ def parse_fbneo(text):
             re.finditer(r'<game name="([^"]+)"[^>]*>\s*<description>([^<]*)</description>', text)}
 
 
-def arcade_titles():
-    """Titres des jeux d'arcade par nom de code (liste téléchargée puis gardée un mois)."""
-    if not _arcade:
-        path = os.path.join(CACHE_DIR, "fbneo.dat")
-        text = ""
-        if os.path.isfile(path) and time.time() - os.path.getmtime(path) < CACHE_DAYS * 86400:
+def fbneo_text():
+    """Liste des jeux d'arcade FinalBurn Neo (XML), téléchargée puis gardée un mois ; "" sans internet."""
+    path = os.path.join(CACHE_DIR, "fbneo.dat")
+    if os.path.isfile(path) and time.time() - os.path.getmtime(path) < CACHE_DAYS * 86400:
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    try:
+        text = _get(FBNEO_DAT, 60).decode("utf-8", "replace")
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        return text
+    except OSError:
+        if os.path.isfile(path):
             with open(path, encoding="utf-8") as f:
-                text = f.read()
-        else:
-            try:
-                text = _get(FBNEO_DAT, 60).decode("utf-8", "replace")
-                os.makedirs(CACHE_DIR, exist_ok=True)
-                with open(path, "w", encoding="utf-8") as f:
-                    f.write(text)
-            except OSError:
-                if os.path.isfile(path):
-                    with open(path, encoding="utf-8") as f:
-                        text = f.read()
-        _arcade.update(parse_fbneo(text))
+                return f.read()
+        return ""
+
+
+def arcade_titles():
+    """Titres des jeux d'arcade par nom de code."""
+    if not _arcade:
+        _arcade.update(parse_fbneo(fbneo_text()))
     return _arcade
 
 

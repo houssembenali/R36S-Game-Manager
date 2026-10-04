@@ -9,6 +9,7 @@
     Homebrew Hub (hh.gbdev.io) : jeux amateurs Game Boy, Game Boy Color, GBA et NES ;
     Freedoom : Doom complet et libre (dossier doom).
 """
+import html
 import io
 import json
 import os
@@ -53,12 +54,24 @@ LB_PLATFORMS = {
     "coleco": "ColecoVision", "intellivision": "Mattel Intellivision", "msx": "Microsoft MSX",
     "msx2": "Microsoft MSX2", "3do": "3DO Interactive Multiplayer", "vectrex": "GCE Vectrex",
     "zxspectrum": "Sinclair ZX Spectrum",
+    "neogeo": ("SNK Neo Geo MVS", "SNK Neo Geo AES", "Arcade"), "cps1": "Arcade", "cps2": "Arcade",
+    "cps3": "Arcade", "fbneo": "Arcade", "arcade": "Arcade",
 }
+
+
+def lb_platforms(system):
+    """Plateformes LaunchBox d'une console (la Neo Geo existe en version salle et salon)."""
+    value = LB_PLATFORMS.get(system.lower(), ())
+    return (value,) if isinstance(value, str) else value
 HH_PLATFORMS = {"gb": "GB", "gbc": "GBC", "gba": "GBA", "nes": "NES"}
 GENRES = set(metadata.GENRES.values())  # genres connus de la carte (un tag « 2d » n'en est pas un)
 # versions qui ne sont pas des jeux sortis en boutique
-EXCLUDED = re.compile(r"\((?:[^)]*\b(?:beta|proto|demo|sample|program|pirate|aftermarket|unl|kiosk|test|debug)\b"
-                      r"[^)]*)\)|\[bios\]", re.I)
+EXCLUDED = re.compile(r"\((?:[^)]*\b(?:beta|proto|prototype|demo|sample|program|pirate|aftermarket|unl|kiosk|test|"
+                      r"debug|bootleg|hack)\b[^)]*)\)|\[bios\]", re.I)
+# consoles d'arcade : jeux pris dans la liste FinalBurn Neo (« sourcefile » de chaque jeu)
+ARCADE_SOURCES = {"neogeo": "neogeo/", "cps1": "/d_cps1.", "cps2": "/d_cps2.", "cps3": "/d_cps3.",
+                  "fbneo": "", "arcade": ""}
+ARCADE_THUMBS = "FBNeo - Arcade Games"
 
 
 @dataclass
@@ -81,12 +94,15 @@ class Entry:
     added: str = ""             # date d'arrivée dans le catalogue (jeux gratuits)
     rating: float = 0.0         # note de la communauté LaunchBox, sur 5 (0 = inconnue)
     votes: int = 0              # nombre de votes : sert de mesure de popularité
+    codes: list = field(default_factory=list)   # arcade : noms de code (« mslug », « mslugh »…)
+    thumbs: str = ""            # dossier d'images libretro, s'il n'est pas celui de la console
     game_id: str = ""           # identifiant LaunchBox : réunit les titres japonais / occidentaux d'un jeu
 
     @property
     def keys(self):
         """Titres simplifiés du jeu et de toutes ses versions."""
-        return {k for k in [self.key] + [core.title_key(core.DISC_RE.sub("", n)) for n in self.names] if k}
+        names = [self.key] + [core.title_key(core.DISC_RE.sub("", n)) for n in self.names]
+        return {k for k in names + [core.title_key(c) for c in self.codes] if k}
 
     @property
     def score(self):
@@ -137,12 +153,49 @@ def _dat_text(system_name):
 
 
 def has_list(system):
-    return system.lower() in scraper.LIBRETRO and scraper.LIBRETRO[system.lower()] not in ("MAME", "DOS",
-                                                                                           "ScummVM")
+    s = system.lower()
+    return s in ARCADE_SOURCES or (s in scraper.LIBRETRO and scraper.LIBRETRO[s] not in ("MAME", "DOS", "ScummVM"))
+
+
+def parse_fbneo_games(text):
+    """[{name, cloneof, source, desc, year, maker}] depuis la liste FinalBurn Neo."""
+    out = []
+    for m in re.finditer(r'<game name="([^"]+)"([^>]*)>(.*?)</game>', text, re.S):
+        attrs, body = m.group(2), m.group(3)
+
+        def get(pattern, where):
+            found = re.search(pattern, where)
+            return html.unescape(found.group(1)) if found else ""
+        out.append({"name": m.group(1), "cloneof": get(r'cloneof="([^"]+)"', attrs),
+                    "source": get(r'sourcefile="([^"]+)"', attrs), "desc": get(r"<description>([^<]*)<", body),
+                    "year": get(r"<year>(\d{4})", body), "maker": get(r"<manufacturer>([^<]*)<", body)})
+    return out
+
+
+def arcade(system):
+    """[Entry] des jeux d'arcade d'une console : un par jeu, ses versions (clones) regroupées."""
+    source = ARCADE_SOURCES[system.lower()]
+    games = [g for g in parse_fbneo_games(metadata.fbneo_text()) if source in g["source"]]
+    parents = {}
+    for g in games:
+        if not g["cloneof"] and not EXCLUDED.search(g["desc"]):
+            title = display_title(re.sub(r"\s*\(.*$", "", g["desc"].split(" / ")[0]).strip())
+            parents[g["name"]] = Entry(title, system.lower(), core.title_key(title), [g["desc"]],
+                                       regions.regions(g["desc"]), year=g["year"], developer=g["maker"],
+                                       codes=[g["name"]], thumbs=ARCADE_THUMBS)
+    for g in games:
+        e = parents.get(g["cloneof"])
+        if e and not EXCLUDED.search(g["desc"]):
+            e.names.append(g["desc"])
+            e.codes.append(g["name"])
+            e.regions += [c for c in regions.regions(g["desc"]) if c not in e.regions]
+    return sorted(parents.values(), key=lambda e: e.title.lower())
 
 
 def commercial(system):
     """[Entry] : un par jeu (toutes régions regroupées) sorti sur la console."""
+    if system.lower() in ARCADE_SOURCES:
+        return arcade(system)
     system_name = scraper.LIBRETRO.get(system.lower())
     if not system_name or not has_list(system):
         return []
@@ -182,7 +235,7 @@ def _region_rank(name):
 
 def boxart_url(entry):
     """Jaquette libretro du jeu (première version qui en a une), ou ""."""
-    system_name = scraper.LIBRETRO.get(entry.system.lower())
+    system_name = entry.thumbs or scraper.LIBRETRO.get(entry.system.lower())
     if not system_name:
         return ""
     known = set(scraper._listing(system_name, "Named_Boxarts"))
@@ -271,13 +324,13 @@ def has_free(system):
 # ---------------------------------------------------------------- notes et popularité
 
 def _ratings_path():
-    return os.path.join(CACHE_DIR, "launchbox-ratings.json")
+    return os.path.join(CACHE_DIR, "launchbox-ratings-v2.json")  # v2 : plateformes d'arcade ajoutées
 
 
 def parse_launchbox(xml_file):
     """{plateforme: {titre simplifié: [note, votes, identifiant, année, genre]}} depuis Metadata.xml de LaunchBox
     (titres alternatifs compris : noms européens, japonais…)."""
-    wanted = set(LB_PLATFORMS.values())
+    wanted = {p for s in LB_PLATFORMS for p in lb_platforms(s)}
     games, alternates = {}, []
     for _event, el in ET.iterparse(xml_file):
         if el.tag == "Game":
@@ -340,9 +393,14 @@ def ratings(force=False):
 def apply_ratings(entries, table):
     """Ajoute note et nombre de votes aux jeux, puis réunit en une ligne les titres d'un même jeu
     (« Castlevania - Aria of Sorrow » et « Akatsuki no Minuet »). Retourne la nouvelle liste."""
+    merged = {}  # console -> notes de toutes ses plateformes LaunchBox (la première a le dernier mot)
     for e in entries:
-        found = table.get(LB_PLATFORMS.get(e.system, ""), {})
-        for key in e.keys:
+        if e.system not in merged:
+            merged[e.system] = {}
+            for platform in reversed(lb_platforms(e.system)):
+                merged[e.system].update(table.get(platform, {}))
+        found = merged[e.system]
+        for key in [e.key] + sorted(e.keys - {e.key}):  # le titre principal d'abord
             if key in found:
                 e.rating, e.votes, *rest = found[key]
                 e.game_id, year, genre = (rest + ["", "", ""])[:3]

@@ -138,3 +138,40 @@ def test_arcade_real_names(card, monkeypatch):
     core.clear_cache()
     names = {g.stem: metadata.arcade_name(g) for g in core.load_all(card)["cps1"]}
     assert names == {"ffight": "Final Fight", "wofsjc": "wofsjc", "strider": None}
+
+
+FBNEO = """<datafile>
+\t<game name="mslug" romof="neogeo" sourcefile="neogeo/d_neogeo.cpp">
+\t\t<description>Metal Slug - Super Vehicle-001</description>
+\t\t<year>1996</year>
+\t\t<manufacturer>Nazca</manufacturer>
+\t</game>
+\t<game name="mslugh" cloneof="mslug" romof="mslug" sourcefile="neogeo/d_neogeo.cpp">
+\t\t<description>Metal Slug (Japan)</description>
+\t\t<year>1996</year>
+\t</game>
+\t<game name="mslug3b6" cloneof="mslug" romof="mslug" sourcefile="neogeo/d_neogeo.cpp">
+\t\t<description>Metal Slug 6 (bootleg of Metal Slug 3)</description>
+\t</game>
+\t<game name="aof" romof="neogeo" sourcefile="neogeo/d_neogeo.cpp">
+\t\t<description>Art of Fighting / Ryuuko no Ken (NGM-044 ~ NGH-044)</description>
+\t\t<year>1992</year>
+\t</game>
+\t<game name="ffight" sourcefile="capcom/d_cps1.cpp">
+\t\t<description>Final Fight (World, set 1)</description>
+\t</game>
+</datafile>"""
+
+
+def test_arcade_catalogue_from_fbneo(card, monkeypatch):
+    monkeypatch.setattr(metadata, "fbneo_text", lambda: FBNEO)
+    neogeo = gamecat.commercial("neogeo")
+    assert [e.title for e in neogeo] == ["Art of Fighting", "Metal Slug - Super Vehicle-001"]  # ni CPS, ni bootleg
+    ms = neogeo[1]
+    assert ms.codes == ["mslug", "mslugh"] and ms.year == "1996" and ms.developer == "Nazca"
+    assert ms.regions == ["jp"] and ms.thumbs == gamecat.ARCADE_THUMBS
+    assert [e.title for e in gamecat.commercial("cps1")] == ["Final Fight"]
+    write(card, "neogeo/mslugh.zip")  # la version japonaise suffit pour « sur ta carte »
+    core.clear_cache()
+    keys = gamecat.owned_keys(core.load_all(card)["neogeo"])
+    assert [gamecat.owned(e, keys) for e in neogeo] == [False, True]
