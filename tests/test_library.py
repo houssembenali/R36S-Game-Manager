@@ -94,3 +94,20 @@ def test_easyroms_detection(card, tmp_path):
         (other / d).mkdir(parents=True)
     assert not core.looks_like_easyroms(str(other))
     assert not core.looks_like_easyroms(str(tmp_path / "absent"))
+
+
+def test_port_folder_from_port_json_and_script(card):
+    from conftest import write
+    # port.json de PortMaster : la liste « items » relie le script à son dossier
+    write(card, "ports/Grand Theft Auto San Andreas.sh", '#!/bin/bash\ncd "$GAME_DIR"\n')
+    write(card, "ports/gtasa/port.json", '{"items": ["Grand Theft Auto San Andreas.sh", "gtasa/"], '
+                                         '"attr": {"title": "GTA SA", "rtr": false}}')
+    write(card, "ports/gtasa/data.img", b"x" * 1000)
+    # pas de port.json : dossier lu dans GAMEDIR="${PORTDIR}/Half-Life"
+    write(card, "ports/Half-Life.sh", '#!/bin/bash\nPORTDIR="/$directory/ports/"\nGAMEDIR="${PORTDIR}/Half-Life"\n')
+    write(card, "ports/Half-Life/valve.pak", b"y" * 500)
+    games = {os.path.basename(g.path): g for g in core.load_all(card)["ports"]}
+    assert core.port_dir(games["Grand Theft Auto San Andreas.sh"].path).endswith("gtasa")
+    assert core.port_info(games["Grand Theft Auto San Andreas.sh"].path)["attr"]["title"] == "GTA SA"
+    assert core.port_dir(games["Half-Life.sh"].path).endswith("Half-Life")
+    assert games["Grand Theft Auto San Andreas.sh"].size > 1000  # le dossier compte dans la taille

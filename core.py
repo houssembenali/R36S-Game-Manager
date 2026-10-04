@@ -7,6 +7,7 @@ médias + entrée du gamelist.xml).
 """
 import ctypes
 import datetime
+import json
 import os
 import re
 import shutil
@@ -234,6 +235,7 @@ def listing(folder):
 def clear_cache():
     _listing_cache.clear()
     _cover_cache.clear()
+    _port_cache.clear()
 
 
 def siblings(path):
@@ -244,19 +246,58 @@ def siblings(path):
             if n.lower().startswith(prefix) and n.lower() != base.lower() and not is_not_game(n)]
 
 
+_port_cache = {}
+
+
+def port_manifests(ports_folder):
+    """{nom du script .sh en minuscules: (dossier du port, port.json)} d'après les port.json de PortMaster
+    (leur liste « items » donne exactement les fichiers du port, ex. ["AM2R.sh", "am2r/"])."""
+    key = os.path.normcase(ports_folder)
+    if key not in _port_cache:
+        found = {}
+        try:
+            dirs = [e.path for e in os.scandir(ports_folder) if e.is_dir()]
+        except OSError:
+            dirs = []
+        for d in dirs:
+            try:
+                with open(os.path.join(d, "port.json"), encoding="utf-8") as f:
+                    data = json.load(f)
+            except (OSError, ValueError):
+                continue
+            items = data.get("items") or []
+            folders = [os.path.join(ports_folder, i.strip("/")) for i in items if i.endswith("/")]
+            for script in (i for i in items if i.lower().endswith(".sh")):
+                found[script.lower()] = (folders[0] if folders else d, data)
+        _port_cache[key] = found
+    return _port_cache[key]
+
+
+def port_info(path):
+    """Contenu du port.json du port (titre, description, instructions…), ou {}."""
+    entry = port_manifests(os.path.dirname(path)).get(os.path.basename(path).lower())
+    return entry[1] if entry else {}
+
+
 def port_dir(path):
-    """Dossier de données d'un port PortMaster, lu dans la ligne GAMEDIR= du .sh."""
+    """Dossier de données d'un port PortMaster : d'après son port.json, sinon d'après la ligne
+    GAMEDIR= / GAME_DIR= du script (« $PORTDIR/augustus », « ${PORTDIR}/Half-Life »…)."""
     if not path.lower().endswith(".sh") or not os.path.isfile(path):
         return None
+    folder = os.path.dirname(path)
+    entry = port_manifests(folder).get(os.path.basename(path).lower())
+    if entry and os.path.isdir(entry[0]):
+        return entry[0]
     try:
         with open(path, encoding="utf-8", errors="replace") as f:
-            m = re.search(r'^\s*GAMEDIR="?[^"\n]*/ports/([^"/\s$]+)', f.read(), re.M)
+            text = f.read()
     except OSError:
         return None
-    if m:
-        d = os.path.join(os.path.dirname(path), m.group(1))
-        if os.path.isdir(d):
-            return d
+    existing = {n.lower(): n for n in os.listdir(folder) if os.path.isdir(os.path.join(folder, n))}
+    for value in re.findall(r'^\s*(?:GAMEDIR|GAME_DIR)="?([^"\n]+?)"?\s*$', text, re.M):
+        last = value.rstrip("/").split("/")[-1].strip("{}$ ")
+        if last.lower() in existing and last.lower() not in ("ports", "portmaster"):
+            return os.path.join(folder, existing[last.lower()])
     return None
 
 
