@@ -10,6 +10,7 @@ lookup(game) ne lève jamais d'exception : en cas de problème réseau elle renv
 Seuls les champs vides de la fiche sont proposés (rien n'est écrasé).
 """
 import difflib
+import html
 import json
 import os
 import re
@@ -249,6 +250,55 @@ def french_genre(value):
 def clean_title(game):
     """Titre lisible : « Mario Kart - Super Circuit (USA) » -> « Mario Kart - Super Circuit »."""
     return re.sub(r"\s*[\(\[][^\)\]]*[\)\]]", "", core.DISC_RE.sub("", game.stem)).strip(" -") or game.stem
+
+
+# ---------------------------------------------------------------- noms des jeux d'arcade
+
+FBNEO_DAT = ("https://raw.githubusercontent.com/libretro/FBNeo/master/dats/"
+             "FinalBurn%20Neo%20(ClrMame%20Pro%20XML%2C%20Arcade%20only).dat")
+_arcade = {}
+
+
+def parse_fbneo(text):
+    """{nom de code: titre} depuis la liste FinalBurn Neo (« ffight » -> « Final Fight (World, set 1) »)."""
+    return {m.group(1).lower(): html.unescape(m.group(2)) for m in
+            re.finditer(r'<game name="([^"]+)"[^>]*>\s*<description>([^<]*)</description>', text)}
+
+
+def arcade_titles():
+    """Titres des jeux d'arcade par nom de code (liste téléchargée puis gardée un mois)."""
+    if not _arcade:
+        path = os.path.join(CACHE_DIR, "fbneo.dat")
+        text = ""
+        if os.path.isfile(path) and time.time() - os.path.getmtime(path) < CACHE_DAYS * 86400:
+            with open(path, encoding="utf-8") as f:
+                text = f.read()
+        else:
+            try:
+                text = _get(FBNEO_DAT, 60).decode("utf-8", "replace")
+                os.makedirs(CACHE_DIR, exist_ok=True)
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(text)
+            except OSError:
+                if os.path.isfile(path):
+                    with open(path, encoding="utf-8") as f:
+                        text = f.read()
+        _arcade.update(parse_fbneo(text))
+    return _arcade
+
+
+def arcade_name(game):
+    """Vrai titre d'un jeu d'arcade affiché sous son nom de code, avec ou sans numéro devant
+    (« 010 ffight » -> « Final Fight »). None si le nom est déjà un vrai titre."""
+    if game.system.lower() not in core.ARCADE_SYSTEMS:
+        return None
+    name = game.name.strip()
+    code = re.sub(r"^\d+\s+", "", name)
+    if code.lower() != game.stem.lower():
+        return None
+    title = arcade_titles().get(game.stem.lower())
+    new = re.sub(r"\s*\(.*$", "", title).strip() if title else code
+    return new if new and new != name else None
 
 
 def missing_fields(game):

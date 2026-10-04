@@ -51,6 +51,7 @@ class ToolsMixin:
                                (_("Catalogue de jeux…"), self.game_catalog),
                                (None, None),
                                (_("Compléter les fiches incomplètes…"), self.complete_cards),
+                               (_("Vrais noms des jeux d'arcade…"), self.arcade_names),
                                (_("Regrouper les jeux multi-disques…"), self.group_multidisc),
                                (_("Compresser les jeux CD en CHD…"), self.compress_chd),
                                (_("Supprimer des vidéos…"), self.delete_videos_tool),
@@ -309,6 +310,49 @@ class ToolsMixin:
                                    "un jeu introuvable est simplement passé."), items, _("COMPLÉTER")).show()
         if chosen:
             self.enrich_games([games[i] for i in chosen])
+
+    def arcade_names(self):
+        """Jeux d'arcade affichés sous leur nom de code (« 010 ffight ») : on met leur vrai titre."""
+        games = [g for s, lst in self.games.items() if s.lower() in core.ARCADE_SYSTEMS for g in lst]
+
+        def work(report, cancel):
+            return [(g, new) for g in games if (new := metadata.arcade_name(g))]
+
+        def show(found):
+            if not found:
+                info(self, _("Jeux d'arcade"), _("Tous les jeux d'arcade ont déjà un vrai nom."))
+                return
+            items = [(f"{g.name}   →   {new}", systems.name(g.system), True, None) for g, new in found]
+            chosen = ChecklistDialog(self, _("Jeux d'arcade"), "arcade",
+                                     _("Ces jeux s'affichent sous leur nom de code, parfois précédé d'un numéro. "
+                                       "Ils prendront leur vrai titre (liste FinalBurn Neo) ; le fichier du jeu "
+                                       "n'est pas renommé, la console le lance toujours."), items,
+                                     _("RENOMMER")).show()
+            if chosen:
+                self._rename_games([found[i] for i in chosen])
+
+        self.run_in_background(_("Jeux d'arcade"), "arcade", None, work, show)
+
+    def _rename_games(self, renames):
+        """Change le nom affiché (balise <name> du gamelist) : [(jeu, nouveau nom)]."""
+        root = self.root_path
+
+        def work(report, cancel):
+            errors = []
+            for i, (g, new) in enumerate(renames):
+                if cancel.is_set():
+                    break
+                report(i, new)
+                errors += core.set_info(root, g, {"name": new})
+            return errors
+
+        def done(errors):
+            self.reload_systems({g.system for g, _new in renames})
+            self.flash(_n(len(renames), "{n} jeu renommé", "{n} jeux renommés"), T.GREEN)
+            self._errors(errors)
+
+        self.run_in_background(_("Jeux d'arcade"), "arcade", len(renames), work, done,
+                               _n(len(renames), "Renommage de {n} jeu", "Renommage de {n} jeux"))
 
     # ------------------------------------------------------------ multi-disques
     def group_multidisc(self):

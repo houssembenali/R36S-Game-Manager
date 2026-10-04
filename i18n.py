@@ -442,6 +442,15 @@ EN = {
         "region and the latest revision. Checked copies will be deleted (they go to the trash).",
     "{n} doublon supprimé": "{n} duplicate deleted", "{n} doublons supprimés": "{n} duplicates deleted",
     "Suppression de {n} doublon": "Deleting {n} duplicate", "Suppression de {n} doublons": "Deleting {n} duplicates",
+    # noms des jeux d'arcade
+    "Vrais noms des jeux d'arcade…": "Real names of arcade games…", "Jeux d'arcade": "Arcade games",
+    "Tous les jeux d'arcade ont déjà un vrai nom.": "All arcade games already have a real name.",
+    "Ces jeux s'affichent sous leur nom de code, parfois précédé d'un numéro. Ils prendront leur vrai titre (liste "
+    "FinalBurn Neo) ; le fichier du jeu n'est pas renommé, la console le lance toujours.":
+        "These games show under their code name, sometimes with a number in front. They will get their real title "
+        "(FinalBurn Neo list); the game file is not renamed, so the console still launches it.",
+    "RENOMMER": "RENAME", "{n} jeu renommé": "{n} game renamed", "{n} jeux renommés": "{n} games renamed",
+    "Renommage de {n} jeu": "Renaming {n} game", "Renommage de {n} jeux": "Renaming {n} games",
     # catalogue de jeux
     "Catalogue de jeux": "Game catalogue", "Catalogue de jeux…": "Game catalogue…",
     "Aucune console de la carte n'a de catalogue.": "No console on the card has a catalogue.",

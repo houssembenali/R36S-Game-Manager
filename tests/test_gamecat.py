@@ -120,3 +120,21 @@ def test_ratings_merge_versions_and_rank_by_score():
     assert cv.score > merged[1].score  # 5/5 avec un seul vote passe derrière 4,6/5 avec 378 votes
     from dialogs import stars
     assert stars(4.61) == "★★★★☆ 4,6" and stars(4.8) == "★★★★★ 4,8"
+
+
+def test_arcade_real_names(card, monkeypatch):
+    import metadata
+    from conftest import gamelist
+    text = '<game name="ffight" sourcefile="cps1.cpp">\n\t\t<description>Final Fight (World, set 1)</description>'
+    assert metadata.parse_fbneo(text) == {"ffight": "Final Fight (World, set 1)"}
+    monkeypatch.setattr(metadata, "arcade_titles", lambda: {"ffight": "Final Fight (World, set 1)"})
+    write(card, "cps1/ffight.zip")
+    write(card, "cps1/wofsjc.zip")
+    write(card, "cps1/strider.zip")
+    write(card, "cps1/gamelist.xml", gamelist(
+        "<game><path>./ffight.zip</path><name>010 ffight</name></game>",
+        "<game><path>./wofsjc.zip</path><name>019 wofsjc</name></game>",
+        "<game><path>./strider.zip</path><name>Strider</name></game>"))
+    core.clear_cache()
+    names = {g.stem: metadata.arcade_name(g) for g in core.load_all(card)["cps1"]}
+    assert names == {"ffight": "Final Fight", "wofsjc": "wofsjc", "strider": None}
