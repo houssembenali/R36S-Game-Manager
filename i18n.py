@@ -442,4 +442,28 @@ EN = {
         "region and the latest revision. Checked copies will be deleted (they go to the trash).",
     "{n} doublon supprimé": "{n} duplicate deleted", "{n} doublons supprimés": "{n} duplicates deleted",
     "Suppression de {n} doublon": "Deleting {n} duplicate", "Suppression de {n} doublons": "Deleting {n} duplicates",
+    # catalogue de jeux
+    "Catalogue de jeux": "Game catalogue", "Catalogue de jeux…": "Game catalogue…",
+    "Aucune console de la carte n'a de catalogue.": "No console on the card has a catalogue.",
+    "Tous les jeux sortis sur chaque console, avec ceux que tu as déjà. Les jeux du commerce sont protégés : "
+    "copie-les depuis ta cartouche ou ton disque. Les jeux gratuits et légaux (homebrew, Freedoom) s'installent "
+    "directement sur la carte.":
+        "Every game released on each console, with the ones you already have. Commercial games are protected: copy "
+        "them from your own cartridge or disc. Free and legal games (homebrew, Freedoom) install straight to the card.",
+    "Console :": "Console:", "Tous les jeux": "All games", "Sur ma carte": "On my card", "Manquants": "Missing",
+    "Gratuits à installer": "Free to install", "JEU": "GAME", "RÉGIONS": "REGIONS",
+    "SITE DU JEU": "GAME WEBSITE", "Liste indisponible (pas d'internet ?)": "List unavailable (no internet?)",
+    "Chargement de la liste…": "Loading the list…",
+    "Pas de liste de jeux pour cette console.": "No game list for this console.",
+    "{shown} jeux affichés · {owned} sur ta carte sur {total}": "{shown} games shown · {owned} of {total} on your card",
+    "{n} à installer": "{n} to install", "sur ta carte": "on your card", "gratuit": "free",
+    "Ce jeu est sur ta carte.": "This game is on your card.",
+    "Gratuit et légal : il s'installe directement sur la carte.": "Free and legal: it installs straight to the card.",
+    "Jeu du commerce : copie-le depuis ta propre cartouche ou ton disque, puis ajoute-le avec « Ajouter des jeux ».":
+        "Commercial game: copy it from your own cartridge or disc, then add it with \"Add games\".",
+    "Année": "Year", "Régions": "Regions", "Licence": "License", "Versions :": "Versions:",
+    "{n} jeu gratuit installé": "{n} free game installed", "{n} jeux gratuits installés": "{n} free games installed",
+    "Certains jeux n'ont pas pu être installés :": "Some games could not be installed:",
+    "Installation de {n} jeu gratuit": "Installing {n} free game",
+    "Installation de {n} jeux gratuits": "Installing {n} free games",
 }

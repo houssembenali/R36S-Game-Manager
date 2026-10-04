@@ -129,7 +129,7 @@ EXTENSIONS = {
     "atarilynx": {".lnx"}, "atari2600": {".a26", ".bin"},
     "neogeo": _ARCADE, "cps1": _ARCADE, "cps2": _ARCADE, "cps3": _ARCADE,
     "mame": _ARCADE, "mame2003": _ARCADE, "fbneo": _ARCADE,
-    "ports": {".sh"},
+    "ports": {".sh"}, "doom": {".wad"},
 }
 _GENERIC = {".zip", ".7z", ".bin", ".cue", ".chd", ".iso", ".m3u", ".img", ".ccd", ".toc", ".mds"}
 

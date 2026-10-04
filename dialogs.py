@@ -8,8 +8,10 @@ from tkinter import filedialog, ttk
 
 from PIL import Image, ImageGrab, ImageTk
 
+import gamecat
 import icons
 import net
+import regions
 import scraper
 import settings
 import systems
@@ -753,4 +755,296 @@ class PortCatalogDialog(RetroWindow):
 
     def ok(self):
         self.result = [p for p in self.catalog if p.key in self.marked]
+        self.destroy()
+
+
+class GameCatalogDialog(RetroWindow):
+    """Catalogue de jeux par console : tous les jeux sortis (fiches) et jeux gratuits installables.
+    consoles = [dossier] ; games = {dossier: [Game]} de la carte. Résultat : [gamecat.Entry] à installer."""
+    PREVIEW = (300, 220)
+
+    def __init__(self, parent, consoles, games, start=None):
+        super().__init__(parent, _("Catalogue de jeux"), "gamepad")
+        self.games = games
+        self.consoles = sorted(consoles, key=lambda s: systems.name(s).lower())
+        self.data, self.loading = {}, set()   # dossier -> [Entry] ; consoles en cours de chargement
+        self.marked, self.shots, self.shown = {}, {}, None
+        self.keys, self.files = {}, {}        # dossier -> titres / fichiers présents sur la carte
+        self.counts = (0, 0, 0)
+        tk.Label(self.body, text=_("Tous les jeux sortis sur chaque console, avec ceux que tu as déjà. Les jeux du "
+                                   "commerce sont protégés : copie-les depuis ta cartouche ou ton disque. Les jeux "
+                                   "gratuits et légaux (homebrew, Freedoom) s'installent directement sur la carte."),
+                 font=T.F["body"], fg=T.TEXT, bg=T.PANEL, justify="left", wraplength=1040,
+                 anchor="w").pack(fill="x", pady=(0, 10))
+        bar = tk.Frame(self.body, bg=T.PANEL)
+        bar.pack(fill="x", pady=(0, 8))
+        tk.Label(bar, text=_("Console :"), font=T.F["small"], fg=T.MUTED, bg=T.PANEL).pack(side="left")
+        self.console = ttk.Combobox(bar, values=[systems.name(s) for s in self.consoles], state="readonly",
+                                    width=24, font=T.F["body"])
+        self.console.current(self.consoles.index(start) if start in self.consoles else 0)
+        self.console.bind("<<ComboboxSelected>>", lambda e: self._load())
+        self.console.pack(side="left", padx=(8, 18))
+        self.views = [_("Tous les jeux"), _("Sur ma carte"), _("Manquants"), _("Gratuits à installer")]
+        self.view = ttk.Combobox(bar, values=self.views, state="readonly", width=20, font=T.F["body"])
+        self.view.current(0)
+        self.view.bind("<<ComboboxSelected>>", lambda e: self._fill())
+        self.view.pack(side="left")
+        self.all_genres = _("Tous les genres")
+        self.genre = ttk.Combobox(bar, values=[self.all_genres], state="readonly", width=18, font=T.F["body"])
+        self.genre.set(self.all_genres)
+        self.genre.bind("<<ComboboxSelected>>", lambda e: self._fill())
+        self.genre.pack(side="left", padx=18)
+        self.query = tk.StringVar()
+        self.query.trace_add("write", lambda *a: self._fill())
+        tk.Label(bar, text=_("Rechercher :"), font=T.F["small"], fg=T.MUTED, bg=T.PANEL).pack(side="left")
+        tk.Entry(bar, textvariable=self.query, bg=T.PANEL2, fg=T.TEXT, insertbackground=T.CYAN, relief="flat",
+                 font=T.F["body"], width=24, highlightthickness=1, highlightbackground=T.BORDER,
+                 highlightcolor=T.CYAN).pack(side="left", padx=(8, 0), ipady=3)
+
+        main = tk.Frame(self.body, bg=T.PANEL)
+        main.pack(fill="both", expand=True)
+        frame = tk.Frame(main, bg=T.PANEL)
+        frame.pack(side="left", fill="both", expand=True)
+        self.tree = ttk.Treeview(frame, columns=("year", "genre", "region", "state"), show="tree headings",
+                                 height=18, selectmode="browse")
+        for col, text, width, anchor in (("#0", _("JEU"), 330, "w"), ("year", _("ANNÉE"), 60, "w"),
+                                         ("genre", _("GENRE"), 120, "w"), ("region", _("RÉGIONS"), 110, "w"),
+                                         ("state", _("ÉTAT"), 120, "w")):
+            self.tree.heading(col, text=text, anchor=anchor)
+            self.tree.column(col, width=width, anchor=anchor)
+        sb = ttk.Scrollbar(frame, orient="vertical", style=T.SCROLL, command=self.tree.yview)
+        self.tree.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        self.tree.pack(side="left", fill="both", expand=True)
+        self.tree.tag_configure("owned", foreground=T.GREEN)
+        self.tree.tag_configure("free", foreground=T.CYAN)
+        self.tree.tag_configure("marked", foreground=T.YELLOW)
+        self.tree.bind("<<TreeviewSelect>>", lambda e: self._preview())
+        self.tree.bind("<Double-1>", lambda e: self._toggle())
+        self.tree.bind("<space>", lambda e: self._toggle())
+
+        side = tk.Frame(main, bg=T.PANEL2, padx=12, pady=10, width=340)
+        side.pack(side="left", fill="y", padx=(12, 0))
+        side.pack_propagate(False)
+        self._blank = tk.PhotoImage(width=self.PREVIEW[0], height=self.PREVIEW[1])
+        self.image = tk.Label(side, image=self._blank, bg=T.BG, fg=T.MUTED, font=T.F["small"], compound="center")
+        self.image.pack()
+        self.title_lbl = tk.Label(side, font=T.F["body"], fg=T.CYAN, bg=T.PANEL2, wraplength=310, justify="left",
+                                  anchor="w")
+        self.title_lbl.pack(fill="x", pady=(8, 2))
+        self.text = tk.Text(side, wrap="word", bg=T.PANEL2, fg=T.TEXT, font=T.F["small"], relief="flat",
+                            highlightthickness=0, height=10, width=36)
+        for tag, color in (("ok", T.GREEN), ("warn", T.YELLOW), ("muted", T.MUTED), ("free", T.CYAN)):
+            self.text.tag_configure(tag, foreground=color)
+        self.text.pack(fill="both", expand=True)
+        self.site_btn = PixelButton(side, _("SITE DU JEU"), command=self._open_site)
+        self.mark_btn = PixelButton(side, _("COCHER"), command=self._toggle)
+
+        def left(b):
+            self.total = tk.Label(b, font=T.F["body"], fg=T.TEXT, bg=T.PANEL)
+            self.total.pack(side="left")
+        self.ok_btn = self.buttons(_("INSTALLER"), "download", left=left)
+        self._load()
+
+    # ---------------------------------------------------------------- données
+    @property
+    def system(self):
+        return self.consoles[self.console.current()]
+
+    def _load(self):
+        """Charge la liste de la console choisie (en arrière-plan, gardée pour la session)."""
+        system = self.system
+        if system in self.data or system in self.loading:
+            self._fill()
+            return
+        self.loading.add(system)
+        self._fill()
+        box = {}
+
+        def fetch():
+            out = []
+            for source in (gamecat.free_games, gamecat.commercial):
+                try:
+                    out += source(system)
+                except (OSError, ValueError, KeyError) as e:
+                    box["error"] = str(e)
+            box["entries"] = out
+        thread = threading.Thread(target=fetch, daemon=True)
+        thread.start()
+
+        def poll():
+            if not self.winfo_exists():
+                return
+            if thread.is_alive():
+                self.after(150, poll)
+                return
+            self.loading.discard(system)
+            if box.get("entries"):
+                self.data[system] = box["entries"]
+            if system == self.system:
+                self._fill(error=False if box.get("entries") else "net" if "error" in box else "empty")
+        poll()
+
+    def _owned(self, e):
+        if e.system not in self.keys:
+            games = self.games.get(e.system, [])
+            self.keys[e.system] = gamecat.owned_keys(games)
+            self.files[e.system] = {os.path.basename(g.path).lower() for g in games}
+        return gamecat.owned(e, self.keys[e.system], self.files[e.system])
+
+    # ---------------------------------------------------------------- liste
+    def _fill(self, error=False):
+        self.tree.delete(*self.tree.get_children())
+        system = self.system
+        entries = self.data.get(system)
+        if entries is None:
+            self.counts = None
+            self.total.configure(text=(_("Liste indisponible (pas d'internet ?)") if error == "net"
+                                       else _("Pas de liste de jeux pour cette console.") if error
+                                       else _("Chargement de la liste…")))
+            self.ok_btn.set_enabled(bool(self.marked))
+            return
+        genres = sorted({e.genre for e in entries if e.genre})
+        self.genre.configure(values=[self.all_genres] + genres)
+        if self.genre.get() not in genres:
+            self.genre.set(self.all_genres)
+        q, genre, view = self.query.get().strip().lower(), self.genre.get(), self.view.current()
+        shown = owned = 0
+        for i, e in enumerate(entries):
+            have = self._owned(e)
+            owned += have
+            if (view == 1 and not have) or (view == 2 and have) or (view == 3 and not e.free):
+                continue
+            if genre != self.all_genres and e.genre != genre:
+                continue
+            if q and q not in e.title.lower() and not any(q in n.lower() for n in e.names):
+                continue
+            shown += 1
+            iid = f"{system}|{i}"
+            text, tags, state = self._row(e, iid, have)
+            self.tree.insert("", "end", iid=iid, text=text, tags=tags,
+                             values=(e.year, e.genre, " ".join(c.upper() for c in e.regions[:4]), state))
+        if self.shown and self.tree.exists(self.shown):
+            self.tree.selection_set(self.shown)
+            self.tree.see(self.shown)
+        self.counts = (shown, owned, len(entries))
+        self._update_total()
+
+    def _update_total(self):
+        text = ""
+        if self.counts:
+            shown, owned, total = self.counts
+            text = _("{shown} jeux affichés · {owned} sur ta carte sur {total}", shown=shown, owned=owned,
+                     total=total)
+        if self.marked:
+            text += "  ·  " + _("{n} à installer", n=len(self.marked))
+        self.total.configure(text=text)
+        self.ok_btn.set_enabled(bool(self.marked))
+
+    def _row(self, e, iid, have):
+        if have:
+            return "  " + e.title, ("owned",), "✓ " + _("sur ta carte")
+        if e.free:
+            marked = iid in self.marked
+            return ("☑ " if marked else "☐ ") + e.title, ("marked" if marked else "free",), _("gratuit")
+        return "  " + e.title, (), ""
+
+    def _entry(self, iid):
+        system, i = iid.rsplit("|", 1)
+        return self.data[system][int(i)]
+
+    def _toggle(self):
+        sel = self.tree.selection()
+        if not sel:
+            return
+        iid = sel[0]
+        e = self._entry(iid)
+        if not e.free or self._owned(e):
+            return
+        if iid in self.marked:
+            del self.marked[iid]
+        else:
+            self.marked[iid] = e
+        text, tags, _state = self._row(e, iid, False)
+        self.tree.item(iid, text=text, tags=tags)
+        self._preview()
+        self._update_total()
+
+    # ---------------------------------------------------------------- aperçu
+    def _preview(self):
+        sel = self.tree.selection()
+        if not sel:
+            return
+        e = self._entry(sel[0])
+        self.shown = sel[0]
+        self.title_lbl.configure(text=e.title)
+        t = self.text
+        t.configure(state="normal")
+        t.delete("1.0", "end")
+        if self._owned(e):
+            t.insert("end", "✓ " + _("Ce jeu est sur ta carte.") + "\n\n", "ok")
+        elif e.free:
+            t.insert("end", "★ " + _("Gratuit et légal : il s'installe directement sur la carte.") + "\n\n", "free")
+        else:
+            t.insert("end", _("Jeu du commerce : copie-le depuis ta propre cartouche ou ton disque, puis ajoute-le "
+                              "avec « Ajouter des jeux ».") + "\n\n", "muted")
+        for label, value in ((_("Année"), e.year), (_("Genre"), e.genre), (_("Développeur"), e.developer),
+                             (_("Régions"), ", ".join(regions.region_name(c) for c in e.regions)),
+                             (_("Licence"), e.license)):
+            if value:
+                t.insert("end", f"{label} : ", "muted")
+                t.insert("end", value + "\n")
+        if e.desc:
+            t.insert("end", "\n" + e.desc + "\n")
+        if len(e.names) > 1:
+            t.insert("end", "\n" + _("Versions :") + "\n" + "\n".join("· " + n for n in e.names[:12]) + "\n", "muted")
+        t.configure(state="disabled")
+        self.site_btn.pack_forget()
+        self.mark_btn.pack_forget()
+        if e.website:
+            self.site_btn.pack(fill="x", pady=(8, 0))
+        if e.free and not self._owned(e):
+            self.mark_btn.set_text(_("DÉCOCHER") if self.shown in self.marked else _("COCHER"))
+            self.mark_btn.pack(fill="x", pady=(8, 0))
+        self._show_shot(e, sel[0])
+
+    def _open_site(self):
+        if self.shown:
+            webbrowser.open(self._entry(self.shown).website)
+
+    def _show_shot(self, e, iid):
+        """Image du jeu (capture des jeux gratuits, jaquette libretro sinon), chargée en arrière-plan."""
+        if iid in self.shots:
+            photo = self.shots[iid]
+            self.image.configure(image=photo or self._blank, text="" if photo else _("Pas d'image"))
+            return
+        self.image.configure(image=self._blank, text=_("Chargement…"))
+        result = {}
+
+        def fetch():
+            try:
+                url = e.image or gamecat.boxart_url(e)
+                if url:
+                    with Image.open(io.BytesIO(net.get(url, timeout=20))) as im:
+                        im = im.convert("RGB")
+                        im.thumbnail(self.PREVIEW)
+                        result["im"] = im
+            except Exception:
+                pass  # pas d'image : on affiche juste le texte
+        thread = threading.Thread(target=fetch, daemon=True)
+        thread.start()
+
+        def poll():
+            if not self.winfo_exists():
+                return
+            if thread.is_alive():
+                self.after(150, poll)
+                return
+            self.shots[iid] = ImageTk.PhotoImage(result["im"]) if "im" in result else None
+            if self.shown == iid:
+                self._show_shot(e, iid)
+        poll()
+
+    def ok(self):
+        self.result = list(self.marked.values())
         self.destroy()

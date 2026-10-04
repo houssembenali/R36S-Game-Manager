@@ -10,18 +10,21 @@ import subprocess
 import sys
 import tkinter as tk
 import webbrowser
+import zipfile
 from tkinter import filedialog
 
 import bios
 import chd
 import core
 import dupes
+import gamecat
 import health
 import i18n
 import importer
 import journal
 import metadata
 import multidisc
+import net
 import paths
 import ports
 import saves
@@ -29,7 +32,8 @@ import scraper
 import settings
 import systems
 import theme as T
-from dialogs import ChecklistDialog, EditDialog, HistoryDialog, ImportDialog, PortCatalogDialog, ReportDialog
+from dialogs import (ChecklistDialog, EditDialog, GameCatalogDialog, HistoryDialog, ImportDialog,
+                     PortCatalogDialog, ReportDialog)
 from i18n import _, _n
 from widgets import _dialog, human, info
 
@@ -44,6 +48,7 @@ class ToolsMixin:
         m = self._menu()
         ready = bool(self.root_path)
         for label, command in ((_("Ajouter des jeux…"), self.add_games),
+                               (_("Catalogue de jeux…"), self.game_catalog),
                                (None, None),
                                (_("Compléter les fiches incomplètes…"), self.complete_cards),
                                (_("Regrouper les jeux multi-disques…"), self.group_multidisc),
@@ -419,6 +424,62 @@ class ToolsMixin:
             self._errors(errors, _("Certains jeux n'ont pas pu être compressés :"))
 
         self.run_in_background(_("Compression CHD"), "compress", len(picked), work, done, _("Compression CHD"))
+
+    # ------------------------------------------------------------ catalogue de jeux
+    def game_catalog(self):
+        """Tous les jeux de chaque console (fiches) + jeux gratuits et légaux à installer."""
+        root = self.root_path
+        consoles = [s for s in core.list_systems(root) if gamecat.has_list(s) or gamecat.has_free(s)]
+        if not consoles:
+            info(self, _("Catalogue de jeux"), _("Aucune console de la carte n'a de catalogue."))
+            return
+        chosen = GameCatalogDialog(self, consoles, self.games, self.current).show()
+        if chosen:
+            self.install_free_games(chosen)
+
+    def install_free_games(self, entries):
+        """Télécharge les jeux gratuits choisis, puis remplit leur fiche et leur image."""
+        root = self.root_path
+
+        def work(report, cancel):
+            errors, done = [], []
+            for i, e in enumerate(entries):
+                if cancel.is_set():
+                    break
+                report(i, _("Téléchargement : {name}", name=e.title))
+                try:
+                    path = gamecat.install(root, e, cancel=cancel)
+                except (OSError, ValueError, KeyError, StopIteration, zipfile.BadZipFile) as x:
+                    errors.append(f"{e.title} : {x}")
+                    continue
+                if path:
+                    done.append((e, path))
+            report(len(entries), _("Mise à jour des gamelist.xml…"))
+            core.clear_cache()
+            for system in {e.system for e, _p in done}:
+                games = core.load_system(root, system)
+                by_path = {os.path.normcase(g.path): g for g in games}
+                for e, path in ((e, p) for e, p in done if e.system == system):
+                    g = by_path.get(os.path.normcase(path))
+                    if not g:
+                        continue
+                    errors += core.set_info(root, g, gamecat.card_values(e))
+                    if e.image:
+                        try:
+                            errors += scraper.set_image(root, g, "image", net.get(e.image, 30), games)
+                        except (OSError, ValueError):
+                            pass  # pas d'image : la fiche suffit
+            return done, errors
+
+        def done(result):
+            installed, errors = result
+            self.reload_systems({e.system for e, _p in installed})
+            self.flash(_n(len(installed), "{n} jeu gratuit installé", "{n} jeux gratuits installés"), T.GREEN)
+            self._errors(errors, _("Certains jeux n'ont pas pu être installés :"))
+
+        self.run_in_background(_("Catalogue de jeux"), "download", len(entries), work, done,
+                               _n(len(entries), "Installation de {n} jeu gratuit",
+                                  "Installation de {n} jeux gratuits"))
 
     # ------------------------------------------------------------ santé de la carte
     def check_card(self):
