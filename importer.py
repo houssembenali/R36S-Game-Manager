@@ -5,6 +5,7 @@ import zipfile
 import core
 import journal
 import systems
+from i18n import _
 
 
 def expand(paths):
@@ -13,7 +14,7 @@ def expand(paths):
     files = []
     for p in paths:
         if os.path.isdir(p):
-            for dirpath, _, names in os.walk(p):
+            for dirpath, _x, names in os.walk(p):
                 files += [os.path.join(dirpath, n) for n in names]
         elif os.path.isfile(p):
             files.append(p)
@@ -59,12 +60,12 @@ def import_files(root, items, report=None, cancel=None):
         if cancel is not None and cancel.is_set():
             break
         if report:
-            report(i, "Copie : " + os.path.basename(path))
+            report(i, _("Copie : {file}", file=os.path.basename(path)))
         dest_dir = os.path.join(root, system)
         src_dir = os.path.dirname(path)
         plan = [(f, os.path.join(dest_dir, os.path.relpath(f, src_dir))) for f in files_of(path)]
         if os.path.exists(plan[0][1]):
-            errors.append(f"{os.path.basename(path)} : existe déjà dans {system}")
+            errors.append(_("{file} : existe déjà dans {system}", file=os.path.basename(path), system=system))
             continue
         try:
             for src, dst in plan:

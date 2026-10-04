@@ -160,7 +160,7 @@ def trash_size(root):
 
 def _size(path):
     total = 0
-    for dirpath, _, files in os.walk(path):
+    for dirpath, _x, files in os.walk(path):
         for f in files:
             try:
                 total += os.path.getsize(os.path.join(dirpath, f))
@@ -202,5 +202,5 @@ def empty_trash(root):
 
 
 def _purge_old(root):
-    for op_id, *_ in history(root)[KEEP - 1:]:
+    for op_id, *_x in history(root)[KEEP - 1:]:
         shutil.rmtree(os.path.join(root, TRASH, op_id), ignore_errors=True)

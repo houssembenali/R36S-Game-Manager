@@ -59,7 +59,7 @@ def _prepare(im):
     opaque = [p for p in im.getdata() if p[3] > 128]
     if not opaque:
         return im
-    lum = sum(0.299 * r + 0.587 * g + 0.114 * b for r, g, b, _ in opaque) / len(opaque)
+    lum = sum(0.299 * r + 0.587 * g + 0.114 * b for r, g, b, _x in opaque) / len(opaque)
     if lum >= 85:
         return im
     halo_alpha = im.getchannel("A").filter(ImageFilter.MaxFilter(9)).point(lambda a: a * 0.75)

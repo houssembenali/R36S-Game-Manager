@@ -48,7 +48,7 @@ def _available(root):
     """Noms de fichiers présents dans bios/ (minuscules, avec et sans sous-dossier)."""
     found = set()
     base = os.path.join(root, "bios")
-    for dirpath, _, files in os.walk(base):
+    for dirpath, _x, files in os.walk(base):
         rel = os.path.relpath(dirpath, base).replace(os.sep, "/")
         for f in files:
             found.add(f.lower())

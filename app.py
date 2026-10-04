@@ -1,4 +1,7 @@
-"""Interface graphique rétro : gestionnaire de jeux R36S / ArkOS (partition EASYROMS)."""
+"""Interface graphique rétro : gestionnaire de jeux R36S / ArkOS (partition EASYROMS).
+
+Textes affichés : toujours via _() / _n() (voir i18n.py) pour la traduction.
+"""
 import datetime
 import os
 import queue
@@ -17,11 +20,14 @@ import logos
 import paths
 import regions
 import scraper
+import settings
 import systems
 import theme as T
 import video
+from i18n import _, _n
 from tools_actions import ToolsMixin
-from widgets import (CleanupDialog, GameGrid, HPBar, PixelButton, ProgressDialog, RetroCheck, Tooltip, ask_delete,
+from widgets import (CleanupDialog, GameGrid, HPBar, PixelButton, ProgressDialog, RetroCheck, Tooltip, _dialog,
+                     ask_delete,
                      human, info)
 
 ALL = "__all__"
@@ -29,29 +35,26 @@ FAV = "__fav__"
 DUP = "__dup__"
 DETAIL_IMG = (340, 255)
 VIDEO_DELAY = 3000  # ms de sélection avant de lancer la vidéo du jeu
-SORTS = {
-    "Nom A → Z": (lambda g: g.name.lower(), False),
-    "Nom Z → A": (lambda g: g.name.lower(), True),
-    "Mieux notés": (lambda g: (g.rating if g.rating is not None else -1, g.name.lower()), True),
-    "Plus joués": (lambda g: (g.playcount, g.name.lower()), True),
-    "Derniers joués": (lambda g: (g.lastplayed or datetime.datetime.min, g.name.lower()), True),
-    "Plus gros": (lambda g: g.size, True),
-    "Plus petits": (lambda g: g.size, False),
-    "Système": (lambda g: (systems.name(g.system).lower(), g.name.lower()), False),
+SORTS = {  # identifiant -> (libellé, clé de tri, ordre inverse)
+    "name_asc": (_("Nom A → Z"), lambda g: g.name.lower(), False),
+    "name_desc": (_("Nom Z → A"), lambda g: g.name.lower(), True),
+    "rating": (_("Mieux notés"), lambda g: (g.rating if g.rating is not None else -1, g.name.lower()), True),
+    "played": (_("Plus joués"), lambda g: (g.playcount, g.name.lower()), True),
+    "recent": (_("Derniers joués"), lambda g: (g.lastplayed or datetime.datetime.min, g.name.lower()), True),
+    "big": (_("Plus gros"), lambda g: g.size, True),
+    "small": (_("Plus petits"), lambda g: g.size, False),
+    "system": (_("Système"), lambda g: (systems.name(g.system).lower(), g.name.lower()), False),
 }
 # Légende de la jauge de la carte : (clé, libellé, couleur)
-USAGE = (("games", "Jeux", T.CYAN), ("images", "Images", T.MAGENTA), ("videos", "Vidéos", T.YELLOW),
-         ("trash", "Corbeille", T.ORANGE))
+USAGE = (("games", _("Jeux"), T.CYAN), ("images", _("Images"), T.MAGENTA), ("videos", _("Vidéos"), T.YELLOW),
+         ("trash", _("Corbeille"), T.ORANGE))
 OTHER_COLOR = "#5a5480"  # le reste (bios, thèmes, système…)
-HINTS = ("Clic : sélectionner   ·   Ctrl/Maj + clic : sélection multiple   ·   F ou ★ : favori   ·   "
-         "Suppr : supprimer   ·   Double-clic : ouvrir le dossier   ·   Ctrl+F : rechercher")
-
-
-MONTHS = ("janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc.")
+HINTS = [_("Clic : sélectionner"), _("Ctrl/Maj + clic : sélection multiple"), _("F ou ★ : favori"),
+         _("Suppr : supprimer"), _("Double-clic : ouvrir le dossier"), _("Ctrl+F : rechercher")]
 
 
 def played_text(count):
-    return "Jamais joué" if not count else f"{count} fois"
+    return _("Jamais joué") if not count else _n(count, "{n} partie", "{n} parties")
 
 
 def last_played_text(when):
@@ -60,16 +63,17 @@ def last_played_text(when):
         return ""
     days = (datetime.datetime.now() - when).days
     if days < 1:
-        ago = "aujourd'hui"
+        ago = _("aujourd'hui")
     elif days < 2:
-        ago = "hier"
+        ago = _("hier")
     elif days < 31:
-        ago = f"il y a {days} jours"
+        ago = _n(days, "il y a {n} jour", "il y a {n} jours")
     elif days < 365:
-        ago = f"il y a {days // 30} mois"
+        ago = _n(days // 30, "il y a un mois", "il y a {n} mois")
     else:
-        ago = f"il y a {days // 365} an{'s' if days >= 730 else ''}"
-    return f"{when.day} {MONTHS[when.month - 1]} {when.year}  ·  {ago}"
+        ago = _n(days // 365, "il y a {n} an", "il y a {n} ans")
+    month = _("janv. févr. mars avr. mai juin juil. août sept. oct. nov. déc.").split()[when.month - 1]
+    return f"{when.day} {month} {when.year}  ·  {ago}"
 
 
 def stars_text(rating):
@@ -107,7 +111,8 @@ class App(ToolsMixin, BaseTk):
         self.shown = []          # jeux affichés (filtrés et triés)
         self.selection = []      # jeux sélectionnés
         self.drive_map = {}      # libellé -> racine du lecteur
-        self.view = "grid"
+        self.view = settings.get("view") if settings.get("view") in ("grid", "list") else "grid"
+        self.sort_id = settings.get("sort") if settings.get("sort") in SORTS else "name_asc"
         self._syncing = False
         self._photo = None
         self._flash_job = None
@@ -115,14 +120,15 @@ class App(ToolsMixin, BaseTk):
         self._build_header()
         T.neon_line(self)
         self._build_footer()
-        body = tk.PanedWindow(self, orient="horizontal", bg=T.BG, sashwidth=6, bd=0)
-        body.pack(fill="both", expand=True)
-        body.add(self._build_sidebar(body), minsize=240, width=330)
-        body.add(self._build_center(body), minsize=520, stretch="always")
-        body.add(self._build_details(body), minsize=340, width=390)
+        self.body = tk.PanedWindow(self, orient="horizontal", bg=T.BG, sashwidth=6, bd=0)
+        self.body.pack(fill="both", expand=True)
+        self.body.add(self._build_sidebar(self.body), minsize=240, width=330)
+        self.body.add(self._build_center(self.body), minsize=520, stretch="always")
+        self.body.add(self._build_details(self.body), minsize=340, width=390)
         self._bind_keys()
-        self.set_view("grid")
+        self.set_view(self.view)
         self.set_selection([])
+        self.after(400, self._restore_panes)
         self.refresh_drives()
 
     # ================================================================ construction
@@ -144,18 +150,18 @@ class App(ToolsMixin, BaseTk):
         self.drive_cb.bind("<<ComboboxSelected>>", lambda e: self.load_drive())
         refresh = PixelButton(bar, icon="refresh", command=self.reload)
         refresh.pack(side="left")
-        Tooltip(refresh, "Relire la carte (F5)")
+        Tooltip(refresh, _("Relire la carte (F5)"))
         self.btn_undo = PixelButton(bar, icon="undo", command=self.undo_last)
         self.btn_undo.pack(side="left", padx=(6, 0))
-        self.undo_tip = Tooltip(self.btn_undo, "Rien à annuler")
+        self.undo_tip = Tooltip(self.btn_undo, _("Rien à annuler"))
         self.btn_undo.set_enabled(False)
         broom = PixelButton(bar, icon="broom", command=self.cleanup)
         broom.pack(side="left", padx=6)
-        Tooltip(broom, "Nettoyer la carte : médias orphelins, fiches sans jeu, jeux mal rangés…")
+        Tooltip(broom, _("Nettoyer la carte : médias orphelins, fiches sans jeu, jeux mal rangés…"))
         add = PixelButton(bar, icon="plus", command=self.add_games)
         add.pack(side="left")
-        Tooltip(add, "Ajouter des jeux depuis le PC (ou glisse-les dans la fenêtre)")
-        tools = PixelButton(bar, "OUTILS", icon="menu", command=lambda: self.show_tools_menu(tools))
+        Tooltip(add, _("Ajouter des jeux depuis le PC (ou glisse-les dans la fenêtre)"))
+        tools = PixelButton(bar, _("OUTILS"), icon="menu", command=lambda: self.show_tools_menu(tools))
         tools.pack(side="left", padx=6)
 
         box = tk.Frame(bar, bg=T.PANEL2, highlightthickness=2, highlightbackground=T.BORDER)
@@ -176,7 +182,7 @@ class App(ToolsMixin, BaseTk):
         hp.pack(side="right")
         top = tk.Frame(hp, bg=T.PANEL)
         top.pack(fill="x")
-        tk.Label(top, text="CARTE SD", font=T.F["tiny"], fg=T.MUTED, bg=T.PANEL).pack(side="left")
+        tk.Label(top, text=_("CARTE SD"), font=T.F["tiny"], fg=T.MUTED, bg=T.PANEL).pack(side="left")
         self.space_lbl = tk.Label(top, font=T.F["small"], fg=T.TEXT, bg=T.PANEL)
         self.space_lbl.pack(side="right")
         self.hp = HPBar(hp)
@@ -197,21 +203,21 @@ class App(ToolsMixin, BaseTk):
         tk.Frame(self, bg=T.BORDER, height=2).pack(side="bottom", fill="x")
         self.status = tk.Label(bar, font=T.F["small"], fg=T.MUTED, bg=T.PANEL, anchor="w")
         self.status.pack(side="left", fill="x", expand=True)
-        self.btn_delete = PixelButton(bar, "SUPPRIMER", icon="trash", style="danger",
+        self.btn_delete = PixelButton(bar, _("SUPPRIMER"), icon="trash", style="danger",
                                       command=self.delete_selected)
         self.btn_delete.pack(side="right")
-        self.btn_open = PixelButton(bar, "DOSSIER", icon="folder", command=self.open_folder)
+        self.btn_open = PixelButton(bar, _("DOSSIER"), icon="folder", command=self.open_folder)
         self.btn_open.pack(side="right", padx=12)
-        self.btn_fav = PixelButton(bar, "FAVORI", icon="star", style="fav",
+        self.btn_fav = PixelButton(bar, _("FAVORI"), icon="star", style="fav",
                                    command=lambda: self.toggle_favorites(None))
         self.btn_fav.pack(side="right")
         self.saves_var = tk.BooleanVar(value=False)
-        RetroCheck(bar, "Supprimer aussi les sauvegardes", self.saves_var,
+        RetroCheck(bar, _("Supprimer aussi les sauvegardes"), self.saves_var,
                    command=self.show_details).pack(side="right", padx=16)
 
     def _build_sidebar(self, master):
         f = tk.Frame(master, bg=T.BG)
-        tk.Label(f, text=T.px("Systèmes"), font=T.F["h2"], fg=T.MUTED, bg=T.BG,
+        tk.Label(f, text=T.px(_("Systèmes")), font=T.F["h2"], fg=T.MUTED, bg=T.BG,
                  anchor="w").pack(fill="x", padx=18, pady=(18, 10))
         wrap = tk.Frame(f, bg=T.BG)
         wrap.pack(fill="both", expand=True, padx=(8, 0), pady=(0, 8))
@@ -243,17 +249,18 @@ class App(ToolsMixin, BaseTk):
         self.btn_list.pack(side="right")
         self.btn_grid = PixelButton(top, icon="grid", style="toggle", command=lambda: self.set_view("grid"))
         self.btn_grid.pack(side="right", padx=6)
-        self.btn_filters = PixelButton(top, "FILTRES", icon="filter", style="toggle",
+        self.btn_filters = PixelButton(top, _("FILTRES"), icon="filter", style="toggle",
                                        command=self.toggle_filter_bar)
         self.btn_filters.pack(side="right", padx=(0, 10))
-        self.btn_images = PixelButton(top, "IMAGES", icon="download", command=self.download_images)
+        self.btn_images = PixelButton(top, _("IMAGES"), icon="download", command=self.download_images)
         self.btn_images.pack(side="right", padx=(0, 14))
-        Tooltip(self.btn_images, "Télécharger depuis internet les images des jeux affichés qui n'en ont pas")
-        self.sort_var = tk.StringVar(value=next(iter(SORTS)))
-        sort = ttk.Combobox(top, textvariable=self.sort_var, values=list(SORTS), state="readonly",
-                            width=11, font=T.F["body"])
+        Tooltip(self.btn_images, _("Télécharger depuis internet les images des jeux affichés qui n'en ont pas"))
+        self.sort_var = tk.StringVar(value=SORTS[self.sort_id][0])
+        sort = ttk.Combobox(top, textvariable=self.sort_var, values=[v[0] for v in SORTS.values()],
+                            state="readonly", width=13, font=T.F["body"])
         sort.pack(side="right", padx=(8, 18))
-        sort.bind("<<ComboboxSelected>>", lambda e: self.fill_games())
+        sort.bind("<<ComboboxSelected>>", lambda e: self.set_sort(
+            next(k for k, v in SORTS.items() if v[0] == self.sort_var.get())))
 
         self._build_filter_bar(f)
         self.content = tk.Frame(f, bg=T.BG)
@@ -271,7 +278,8 @@ class App(ToolsMixin, BaseTk):
         row1 = tk.Frame(bar, bg=T.PANEL2)
         row1.pack(fill="x")
         self.filter_combos = {}
-        for key, label, width in (("genre", "GENRE", 24), ("players", "JOUEURS", 15), ("region", "RÉGION", 14)):
+        for key, label, width in (("genre", _("GENRE"), 24), ("players", _("JOUEURS"), 15),
+                                  ("region", _("RÉGION"), 14)):
             tk.Label(row1, text=label, font=T.F["tiny"], fg=T.MAGENTA, bg=T.PANEL2).pack(side="left", padx=(0, 6))
             combo = ttk.Combobox(row1, state="readonly", width=width, font=T.F["body"])
             combo.pack(side="left", padx=(0, 18))
@@ -280,23 +288,25 @@ class App(ToolsMixin, BaseTk):
         row2 = tk.Frame(bar, bg=T.PANEL2)
         row2.pack(fill="x", pady=(10, 0))
         self.filter_checks = {}
-        for key, label in (("never", "Jamais joué"), ("noimage", "Sans image"), ("norating", "Sans note")):
+        for key, label in (("never", _("Jamais joué")), ("noimage", _("Sans image")), ("norating", _("Sans note"))):
             var = tk.BooleanVar(value=False)
             check = RetroCheck(row2, label, var, command=self._read_filters, bg=T.PANEL2)
             check.pack(side="left", padx=(0, 22))
             self.filter_checks[key] = (var, check)
-        clear = tk.Label(row2, text="Effacer les filtres", font=T.F["small"], fg=T.CYAN, bg=T.PANEL2, cursor="hand2")
+        clear = tk.Label(row2, text=_("Effacer les filtres"), font=T.F["small"], fg=T.CYAN, bg=T.PANEL2,
+                         cursor="hand2")
         clear.pack(side="right")
         clear.bind("<Button-1>", lambda e: self.clear_filters())
 
     def refresh_filter_choices(self):
         """Remplit les listes (genres et régions présents sur la carte)."""
         games = [g for lst in self.games.values() for g in lst]
-        self._genre_labels = {"Tous": ""}
+        self._genre_labels = {_("Tous"): ""}
         self._genre_labels.update({f"{name}  ({n})": name for name, n in filters.genres(games)})
-        self._region_labels = {"Toutes": ""}
-        self._region_labels.update({regions.REGIONS[c]: c for c in filters.region_codes(games)})
-        for key, labels in (("genre", self._genre_labels), ("players", filters.PLAYERS),
+        self._region_labels = {_("Toutes"): ""}
+        self._region_labels.update({regions.region_name(c): c for c in filters.region_codes(games)})
+        self._players_labels = {_(label): n for label, n in filters.PLAYERS.items()}
+        for key, labels in (("genre", self._genre_labels), ("players", self._players_labels),
                             ("region", self._region_labels)):
             combo = self.filter_combos[key]
             combo["values"] = list(labels)
@@ -305,9 +315,9 @@ class App(ToolsMixin, BaseTk):
 
     def _read_filters(self):
         self.filters["genre"] = self._genre_labels.get(self.filter_combos["genre"].get(), "")
-        self.filters["players"] = filters.PLAYERS.get(self.filter_combos["players"].get(), 0)
+        self.filters["players"] = self._players_labels.get(self.filter_combos["players"].get(), 0)
         self.filters["region"] = self._region_labels.get(self.filter_combos["region"].get(), "")
-        for key, (var, _) in self.filter_checks.items():
+        for key, (var, _check) in self.filter_checks.items():
             self.filters[key] = var.get()
         self.fill_games()
 
@@ -328,10 +338,10 @@ class App(ToolsMixin, BaseTk):
 
     def _build_list(self, master):
         frame = tk.Frame(master, bg=T.PANEL)
-        cols = (("fav", "★", 40, "center"), ("rating", "NOTE", 70, "w"), ("system", T.px("Système"), 120, "w"),
-                ("file", "FICHIER", 150, "w"), ("size", "TAILLE", 90, "e"))
+        cols = (("fav", "★", 40, "center"), ("rating", _("NOTE"), 70, "w"), ("system", T.px(_("Système")), 120, "w"),
+                ("file", _("FICHIER"), 150, "w"), ("size", _("TAILLE"), 90, "e"))
         t = ttk.Treeview(frame, columns=[c[0] for c in cols], show="tree headings", selectmode="extended")
-        t.heading("#0", text="NOM", anchor="w", command=lambda: self.sort_heading("name"))
+        t.heading("#0", text=_("NOM"), anchor="w", command=lambda: self.sort_heading("name"))
         t.column("#0", width=230, stretch=True)
         for key, text, width, anchor in cols:
             t.heading(key, text=text, anchor=anchor,
@@ -377,7 +387,7 @@ class App(ToolsMixin, BaseTk):
         self.img_lbl = tk.Label(self.img_frame, bg=T.BG, width=DETAIL_IMG[0], height=DETAIL_IMG[1])
         self.img_lbl.pack()
         # aperçu vidéo (VLC) par-dessus l'image, + bouton du son
-        self.video_muted, self._video_job = False, None
+        self.video_muted, self._video_job = bool(settings.get("video_muted")), None
         self.video = video.VideoPreview(self.img_frame, self.img_lbl, on_click=self.toggle_video_sound)
         self.sound_btn = tk.Label(self.img_frame, bg=T.BG, cursor="hand2", padx=4, pady=3)
         self.sound_btn.bind("<Button-1>", lambda e: self.toggle_video_sound())
@@ -388,8 +398,8 @@ class App(ToolsMixin, BaseTk):
         self.chip = tk.Label(row, font=T.F["tiny"], bg=T.PANEL, compound="left", anchor="w")
         self.chip.pack(side="left")
         self.detail_edit = PixelButton(row, icon="edit", command=self.edit_selected)
-        Tooltip(self.detail_edit, "Modifier la fiche (F2)")
-        self.detail_fav = PixelButton(row, "FAVORI", icon="star", style="fav",
+        Tooltip(self.detail_edit, _("Modifier la fiche (F2)"))
+        self.detail_fav = PixelButton(row, _("FAVORI"), icon="star", style="fav",
                                       command=lambda: self.toggle_favorites(None))
         self.meta = tk.Frame(f, bg=T.PANEL)
         self.meta.pack(fill="x", pady=(10, 6))
@@ -415,15 +425,36 @@ class App(ToolsMixin, BaseTk):
         self.search.bind("<Down>", lambda e: self.focus_games())
         self.search.bind("<Return>", lambda e: self.focus_games())
 
+    # ================================================================ réglages mémorisés
+    def _restore_panes(self):
+        """Remet les séparateurs des panneaux là où ils étaient au dernier lancement."""
+        for i, x in enumerate(settings.get("panes") or []):
+            try:
+                self.body.sash_place(i, int(x), 0)
+            except (tk.TclError, ValueError):
+                pass
+
+    def save_settings(self):
+        try:
+            settings.set("panes", [self.body.sash_coord(i)[0] for i in range(2)])
+        except tk.TclError:
+            pass
+        settings.set("view", self.view)
+        settings.set("sort", self.sort_id)
+        settings.set("video_muted", self.video_muted)
+        if self.root_path:
+            settings.set("drive", self.root_path)
+        settings.save()
+
     # ================================================================ lecteurs
     def refresh_drives(self):
         previous = self.drive_var.get()
         self.drive_map.clear()
-        default = None
+        default, last = None, settings.get("drive")
         for root, label, easy in core.list_drives():
-            text = f"{root[:2]}  {label}" + ("  ★" if easy else "")
+            text = f"{root[:2] if paths.WINDOWS else root}  {label}" + ("  ★" if easy else "")
             self.drive_map[text] = root
-            if easy and default is None:
+            if (easy and default is None) or (root == last and easy):
                 default = text
         self.drive_cb["values"] = list(self.drive_map)
         if previous in self.drive_map:
@@ -440,8 +471,18 @@ class App(ToolsMixin, BaseTk):
         root = self.drive_map.get(self.drive_var.get())
         if not root:
             return
+        name = root[:2] if paths.WINDOWS else root
+        if not core.looks_like_easyroms(root) and not _dialog(
+                self, _("Partition non reconnue"),
+                _("{drive} ne ressemble pas à une carte ArkOS : aucun dossier de console (gba, psx, nes, bios…) "
+                  "n'y a été trouvé.\nChoisis la partition EASYROMS de ta carte SD.", drive=name), "",
+                [(_("ANNULER"), "normal", False), (_("CHARGER QUAND MÊME"), "normal", True)], T.YELLOW, "warning"):
+            # on revient à la carte déjà chargée (ou à aucune) sans rien lire
+            back = next((lab for lab, r in self.drive_map.items() if r == self.root_path), "")
+            self.drive_var.set(back)
+            return
         self.root_path = root
-        self.flash(f"Lecture de {root[:2]} …", T.YELLOW, keep=True)
+        self.flash(_("Lecture de {drive} …", drive=name), T.YELLOW, keep=True)
         self.config(cursor="watch")
         result = {}
 
@@ -461,7 +502,7 @@ class App(ToolsMixin, BaseTk):
                 return
             self.config(cursor="")
             if "err" in result:
-                info(self, "Erreur", f"Impossible de lire {root} :", str(result["err"]))
+                info(self, _("Erreur"), _("Impossible de lire {drive} :", drive=root), str(result["err"]))
                 return
             logos.reset()
             self.games = result["data"]
@@ -471,10 +512,11 @@ class App(ToolsMixin, BaseTk):
             self.refresh_usage()
             self.fill_systems(ALL)
             total = sum(len(v) for v in self.games.values())
-            self.flash(f"{total} jeux chargés depuis {root[:2]}", T.GREEN)
+            self.flash(_n(total, "{n} jeu chargé depuis {drive}", "{n} jeux chargés depuis {drive}", drive=name),
+                       T.GREEN)
             if not self.games:
-                info(self, "Aucun jeu", f"Aucun jeu trouvé sur {root[:2]}.\n"
-                                        "Est-ce bien la partition EASYROMS ?")
+                info(self, _("Aucun jeu"), _("Aucun jeu trouvé sur {drive}.\nEst-ce bien la partition EASYROMS ?",
+                                             drive=name))
 
         poll()
 
@@ -483,6 +525,7 @@ class App(ToolsMixin, BaseTk):
         root, result = self.root_path, {}
         if not root:
             return
+
         def measure():
             result.update(core.media_usage(root))
             result["trash"] = journal.trash_size(root)
@@ -504,7 +547,7 @@ class App(ToolsMixin, BaseTk):
             return
         self.usage["games"] = sum(g.size for lst in self.games.values() for g in lst)
         parts, known = [], 0
-        for key, _, color in USAGE:
+        for key, _label, color in USAGE:
             size = self.usage.get(key)
             self.usage_lbl[key].configure(text=human(size) if size is not None else "…")
             if size:
@@ -512,18 +555,18 @@ class App(ToolsMixin, BaseTk):
                 known += size
         parts.append((max(u.used - known, 0) / u.total, OTHER_COLOR))
         self.hp.set_parts(parts)
-        self.space_lbl.configure(text=f"{human(u.free)} libres / {human(u.total)}")
+        self.space_lbl.configure(text=_("{free} libres / {total}", free=human(u.free), total=human(u.total)))
 
     # ================================================================ listes
     def fill_systems(self, keep):
         t = self.sys_tree
         t.delete(*t.get_children())
         total = sum(len(v) for v in self.games.values())
-        t.insert("", "end", iid=ALL, text="  Tous les jeux", values=(total,),
+        t.insert("", "end", iid=ALL, text="  " + _("Tous les jeux"), values=(total,),
                  image=icons.boxed("gamepad", T.CYAN, 2, 78, 30))
-        t.insert("", "end", iid=FAV, text="  Favoris", values=(len(self.favorites()),),
+        t.insert("", "end", iid=FAV, text="  " + _("Favoris"), values=(len(self.favorites()),),
                  image=icons.boxed("star", T.YELLOW, 2, 78, 30))
-        t.insert("", "end", iid=DUP, text="  Doublons", values=(len(core.find_duplicates(self.games)),),
+        t.insert("", "end", iid=DUP, text="  " + _("Doublons"), values=(len(core.find_duplicates(self.games)),),
                  image=icons.boxed("copy", T.ORANGE, 2, 78, 30))
         for s in sorted(self.games, key=lambda k: systems.name(k).lower()):
             t.insert("", "end", iid=s, text="  " + systems.name(s), values=(len(self.games[s]),),
@@ -558,7 +601,7 @@ class App(ToolsMixin, BaseTk):
         if words:
             games = [g for g in games if all(w in f"{g.name} {g.filename}".lower() for w in words)]
         games = filters.apply(games, self.filters)
-        key, reverse = SORTS[self.sort_var.get()]
+        _label, key, reverse = SORTS[self.sort_id]
         games.sort(key=key, reverse=reverse)
         if self.current == DUP:  # les copies d'un même jeu côte à côte
             games.sort(key=lambda g: (g.system, core.title_key(g.stem)))
@@ -572,27 +615,30 @@ class App(ToolsMixin, BaseTk):
         else:
             if self.current == ALL:
                 self.sys_icon.configure(image=icons.icon("gamepad", T.CYAN, 3))
-                self.sys_title.configure(text="TOUS LES JEUX")
+                self.sys_title.configure(text=T.px(_("Tous les jeux")))
             elif self.current == FAV:
                 self.sys_icon.configure(image=icons.icon("star", T.YELLOW, 3))
-                self.sys_title.configure(text="FAVORIS")
+                self.sys_title.configure(text=T.px(_("Favoris")))
             elif self.current == DUP:
                 self.sys_icon.configure(image=icons.icon("copy", T.ORANGE, 3))
-                self.sys_title.configure(text="DOUBLONS")
+                self.sys_title.configure(text=T.px(_("Doublons")))
             else:
                 self.sys_icon.configure(image=icons.icon(systems.kind(self.current), systems.color(self.current), 3))
                 self.sys_title.configure(text=T.px(systems.name(self.current)))
             self.sys_title.pack(anchor="w", before=self.count_lbl)
-        count = f"{len(games)} jeu{'x' if len(games) > 1 else ''}  ·  {human(sum(g.size for g in games))}"
+        count = _n(len(games), "{n} jeu", "{n} jeux") + f"  ·  {human(sum(g.size for g in games))}"
         active = filters.active_count(self.filters)
-        self.count_lbl.configure(text=count + (f"  ·  recherche « {query} »" if query else "")
-                                 + (f"  ·  {active} filtre{'s' if active > 1 else ''}" if active else ""))
-        self.btn_filters.set_text(f"FILTRES ({active})" if active else "FILTRES")
+        if query:
+            count += "  ·  " + _("recherche « {query} »", query=query)
+        if active:
+            count += "  ·  " + _n(active, "{n} filtre", "{n} filtres")
+        self.count_lbl.configure(text=count)
+        self.btn_filters.set_text(f"{_('FILTRES')} ({active})" if active else _("FILTRES"))
         self.btn_filters.set_active(bool(active) or self.filter_bar.winfo_ismapped())
         self.render_view(keep_scroll)
         self.set_selection(self.selection)
         missing = len(scraper.missing_images(self.shown))
-        self.btn_images.set_text(f"IMAGES ({missing})" if missing else "IMAGES OK")
+        self.btn_images.set_text(f"{_('IMAGES')} ({missing})" if missing else _("IMAGES OK"))
         self.btn_images.set_enabled(missing > 0)
 
     def render_view(self, keep_scroll=False):
@@ -624,6 +670,11 @@ class App(ToolsMixin, BaseTk):
         (self.grid_view if view == "grid" else self.list_view).pack(fill="both", expand=True)
         self.render_view()
 
+    def set_sort(self, sort_id):
+        self.sort_id = sort_id
+        self.sort_var.set(SORTS[sort_id][0])
+        self.fill_games()
+
     def focus_games(self):
         if self.view == "grid":
             self.grid_view.canvas.focus_set()
@@ -631,12 +682,10 @@ class App(ToolsMixin, BaseTk):
             self.tree.focus_set()
 
     def sort_heading(self, column):
-        options = {"name": ("Nom A → Z", "Nom Z → A"), "file": ("Nom A → Z", "Nom Z → A"),
-                   "rating": ("Mieux notés", "Mieux notés"),
-                   "size": ("Plus gros", "Plus petits"), "system": ("Système", "Système")}[column]
-        current = self.sort_var.get()
-        self.sort_var.set(options[1] if current == options[0] else options[0])
-        self.fill_games()
+        first, second = {"name": ("name_asc", "name_desc"), "file": ("name_asc", "name_desc"),
+                         "rating": ("rating", "rating"), "size": ("big", "small"),
+                         "system": ("system", "system")}[column]
+        self.set_sort(second if self.sort_id == first else first)
 
     def _list_context(self, event):
         """Clic droit en vue liste : sélectionne la ligne si besoin puis ouvre le menu."""
@@ -653,12 +702,12 @@ class App(ToolsMixin, BaseTk):
     def set_selection(self, games):
         self.selection = list(games)
         n = len(self.selection)
-        self.btn_delete.set_text(f"SUPPRIMER ({n})" if n > 1 else "SUPPRIMER")
+        self.btn_delete.set_text(f"{_('SUPPRIMER')} ({n})" if n > 1 else _("SUPPRIMER"))
         self.btn_delete.set_enabled(n > 0)
         self.btn_open.set_enabled(n == 1)
         self.btn_fav.set_enabled(n > 0)
         all_fav = n > 0 and all(g.favorite for g in self.selection)
-        self.btn_fav.set_text("RETIRER DES FAVORIS" if all_fav else "AJOUTER AUX FAVORIS")
+        self.btn_fav.set_text(_("RETIRER DES FAVORIS") if all_fav else _("AJOUTER AUX FAVORIS"))
         if not self._flash_job:
             self.update_status()
         self.show_details()
@@ -668,10 +717,10 @@ class App(ToolsMixin, BaseTk):
         if self.selection:
             n = len(self.selection)
             size = human(sum(g.size for g in self.selection))
-            self.status.configure(text=f"{n} jeu{'x' if n > 1 else ''} sélectionné{'s' if n > 1 else ''}"
-                                       f"  ·  {size}", fg=T.CYAN)
+            self.status.configure(text=_n(n, "{n} jeu sélectionné", "{n} jeux sélectionnés") + f"  ·  {size}",
+                                  fg=T.CYAN)
         else:
-            self.status.configure(text=HINTS, fg=T.MUTED)
+            self.status.configure(text="   ·   ".join(HINTS), fg=T.MUTED)
 
     def flash(self, text, color, keep=False):
         """Message temporaire dans la barre d'état."""
@@ -758,6 +807,7 @@ class App(ToolsMixin, BaseTk):
                                                   T.MUTED if self.video_muted else T.CYAN, 2))
 
     def quit_app(self):
+        self.save_settings()
         self.video.release()
         self.destroy()
 
@@ -767,7 +817,7 @@ class App(ToolsMixin, BaseTk):
         if len(sel) == 1:
             self._schedule_video(sel[0])
         if len(sel) == 1:
-            self.detail_fav.set_text("DANS LES FAVORIS" if sel[0].favorite else "AJOUTER AUX FAVORIS")
+            self.detail_fav.set_text(_("DANS LES FAVORIS") if sel[0].favorite else _("AJOUTER AUX FAVORIS"))
             self.detail_fav.set_active(sel[0].favorite)
             self.detail_fav.pack(side="right")
             self.detail_edit.pack(side="right", padx=8)
@@ -778,14 +828,14 @@ class App(ToolsMixin, BaseTk):
             self.chip.configure(text="", image="")
             if sel:
                 self._set_image(None, icons.icon("trash", T.RED, 10), T.RED)
-                self.title_lbl.configure(text=T.px(f"{len(sel)} jeux sélectionnés"))
-                self._set_meta([("TAILLE", human(sum(g.size for g in sel)))])
+                self.title_lbl.configure(text=T.px(_n(len(sel), "{n} jeu sélectionné", "{n} jeux sélectionnés")))
+                self._set_meta([(_("TAILLE"), human(sum(g.size for g in sel)))])
                 self._write_desc([("".join(f"> {g.name}\n" for g in sel), "file")])
             else:
                 self._set_image(None, icons.icon("gamepad", T.BORDER, 12), T.BORDER)
-                self.title_lbl.configure(text=T.px("Sélectionne un jeu"))
+                self.title_lbl.configure(text=T.px(_("Sélectionne un jeu")))
                 self._set_meta([])
-                self._write_desc([("ASTUCES\n", "head"), (HINTS.replace("   ·   ", "\n"), "file")])
+                self._write_desc([(_("ASTUCES") + "\n", "head"), ("\n".join(HINTS), "file")])
             return
 
         g = sel[0]
@@ -802,18 +852,18 @@ class App(ToolsMixin, BaseTk):
         codes, region_text, langs = regions.describe(g.stem)
         flags = icons.flags(codes)
         region = (flags, "  " + region_text) if flags else region_text
-        self._set_meta([("NOTE", note), ("VERSION", region), ("LANGUES", langs),
-                        ("PARTIES", played_text(g.playcount)), ("DERNIÈRE", last_played_text(g.lastplayed)),
-                        ("ANNÉE", i.get("releasedate", "")[:4]), ("DÉV.", i.get("developer")),
-                        ("ÉDITEUR", i.get("publisher")), ("GENRE", i.get("genre")),
-                        ("JOUEURS", i.get("players")), ("TAILLE", human(g.size))])
+        self._set_meta([(_("NOTE"), note), (_("VERSION"), region), (_("LANGUES"), langs),
+                        (_("PARTIES"), played_text(g.playcount)), (_("DERNIÈRE"), last_played_text(g.lastplayed)),
+                        (_("ANNÉE"), i.get("releasedate", "")[:4]), (_("DÉV."), i.get("developer")),
+                        (_("ÉDITEUR"), i.get("publisher")), (_("GENRE"), i.get("genre")),
+                        (_("JOUEURS"), i.get("players")), (_("TAILLE"), human(g.size))])
         files = core.files_to_delete(g, self.games.get(g.system, []), self.saves_var.get())
         parts = []
         if not g.in_gamelist:
-            parts.append(("Ce jeu n'est pas dans le gamelist.xml (pas de fiche).\n", "warn"))
+            parts.append((_("Ce jeu n'est pas dans le gamelist.xml (pas de fiche).") + "\n", "warn"))
         if i.get("desc"):
             parts.append((i["desc"] + "\n", None))
-        parts.append((T.px("Fichiers supprimés avec ce jeu") + "\n", "head"))
+        parts.append((T.px(_("Fichiers supprimés avec ce jeu")) + "\n", "head"))
         parts += [(f"> {os.path.relpath(p, g.sysdir)}\n", "file") for p in files]
         self._write_desc(parts)
 
@@ -860,11 +910,11 @@ class App(ToolsMixin, BaseTk):
             if label:
                 self.refresh_history()
             if "error" in box:
-                info(self, "Erreur", "L'opération a échoué :", str(box["error"]))
+                info(self, _("Erreur"), _("L'opération a échoué :"), str(box["error"]))
             else:
                 on_done(box.get("result"))
 
-        dlg.set(0, total or 1, "Préparation…")
+        dlg.set(0, total or 1, _("Préparation…"))
         poll()
 
     def _forget_games(self, games):
@@ -885,15 +935,15 @@ class App(ToolsMixin, BaseTk):
         root = self.root_path
 
         def work(report, cancel):
-            report(0, "Analyse de la carte…")
+            report(0, _("Analyse de la carte…"))
             return cleanup.scan(root, self.games)
 
         def done(issues):
-            chosen = CleanupDialog(self, root, cleanup.CATEGORIES, issues).result
+            chosen = CleanupDialog(self, root, cleanup.categories(), issues).result
             if chosen:
                 self._do_cleanup(chosen)
 
-        self.run_in_background("Analyse", "broom", None, work, done)
+        self.run_in_background(_("Analyse"), "broom", None, work, done)
 
     def _do_cleanup(self, issues):
         size = sum(i.size for i in issues)
@@ -905,12 +955,12 @@ class App(ToolsMixin, BaseTk):
         def done(result):
             removed, errors, count = result
             self._forget_games(removed)
-            self.flash(f"Nettoyage terminé : {count} élément{'s' if count > 1 else ''}"
-                       f"  ·  {human(size)} dans la corbeille", T.GREEN)
+            self.flash(_n(count, "Nettoyage terminé : {n} élément", "Nettoyage terminé : {n} éléments")
+                       + "  ·  " + _("{size} dans la corbeille", size=human(size)), T.GREEN)
             if errors:
-                info(self, "Erreurs", "Certains éléments n'ont pas pu être nettoyés :", "\n".join(errors[:30]))
+                info(self, _("Erreurs"), _("Certains éléments n'ont pas pu être nettoyés :"), "\n".join(errors[:30]))
 
-        self.run_in_background("Nettoyage", "broom", len(issues), work, done, "Nettoyage de la carte")
+        self.run_in_background(_("Nettoyage"), "broom", len(issues), work, done, _("Nettoyage de la carte"))
 
     def download_images(self, games=None):
         """Télécharge depuis internet les images des jeux affichés qui n'en ont pas."""
@@ -923,31 +973,31 @@ class App(ToolsMixin, BaseTk):
             for i, g in enumerate(games):
                 if cancel.is_set():
                     break
-                report(i, f"Recherche : {g.name}")
+                report(i, _("Recherche : {name}", name=g.name))
                 try:
                     results.append((g, scraper.fetch_images(g)))
                 except OSError:
                     results.append((g, {}))
-            report(len(games), "Mise à jour des gamelist.xml…")
+            report(len(games), _("Mise à jour des gamelist.xml…"))
             return results, core.set_media(root, [(g, m) for g, m in results if m])
 
         root = self.root_path
-        self.run_in_background("Images manquantes", "download", len(games), work,
-                               lambda result: self._images_done(*result), "Images téléchargées")
+        self.run_in_background(_("Images manquantes"), "download", len(games), work,
+                               lambda result: self._images_done(*result), _("Images téléchargées"))
 
     def _images_done(self, results, errors):
         total = len(results)
         found = [(g, m) for g, m in results if m]
-        for g, _ in found:
+        for g, _m in found:
             self.grid_view.thumbs.cache.pop(g.path, None)
         self.fill_games(keep_scroll=True)
         self.refresh_usage()
         missing = [g.name for g, m in results if not m]
-        message = (f"{len(found)} jeu{'x' if len(found) > 1 else ''} sur {total} "
-                   f"{'ont' if len(found) > 1 else 'a'} maintenant une image.")
+        message = _n(len(found), "{n} jeu sur {total} a maintenant une image.",
+                     "{n} jeux sur {total} ont maintenant une image.", total=total)
         if missing:
-            message += f"\nIntrouvables sur libretro-thumbnails ({len(missing)}) :"
-        info(self, "Images", message, "\n".join([f"> {n}" for n in missing] + errors))
+            message += "\n" + _("Introuvables sur libretro-thumbnails ({count}) :", count=len(missing))
+        info(self, _("Images"), message, "\n".join([f"> {n}" for n in missing] + errors))
 
     def toggle_favorites(self, games):
         """Ajoute aux favoris, ou les retire si tous les jeux concernés le sont déjà."""
@@ -955,18 +1005,18 @@ class App(ToolsMixin, BaseTk):
         if not games:
             return
         value = not all(g.favorite for g in games)
-        with journal.operation(self.root_path, "Ajout aux favoris" if value else "Retrait des favoris"):
+        with journal.operation(self.root_path, _("Ajout aux favoris") if value else _("Retrait des favoris")):
             errors = core.set_favorites(self.root_path, games, value)
         self.refresh_history()
         self.sys_tree.item(FAV, values=(len(self.favorites()),))
         self.fill_games(keep_scroll=True)
         n = len(games)
         if value:
-            self.flash(f"★ {n} jeu{'x' if n > 1 else ''} ajouté{'s' if n > 1 else ''} aux favoris", T.YELLOW)
+            self.flash("★ " + _n(n, "{n} jeu ajouté aux favoris", "{n} jeux ajoutés aux favoris"), T.YELLOW)
         else:
-            self.flash(f"{n} jeu{'x' if n > 1 else ''} retiré{'s' if n > 1 else ''} des favoris", T.MUTED)
+            self.flash(_n(n, "{n} jeu retiré des favoris", "{n} jeux retirés des favoris"), T.MUTED)
         if errors:
-            info(self, "Erreurs", "Les favoris n'ont pas pu être enregistrés :", "\n".join(errors))
+            info(self, _("Erreurs"), _("Les favoris n'ont pas pu être enregistrés :"), "\n".join(errors))
 
     def delete_selected(self):
         sel = list(self.selection)
@@ -974,12 +1024,13 @@ class App(ToolsMixin, BaseTk):
             return
         with_saves = self.saves_var.get()
         plan = [(g, core.files_to_delete(g, self.games.get(g.system, []), with_saves)) for g in sel]
-        nfiles = sum(len(f) for _, f in plan)
-        size = sum(core.path_size(p) for _, files in plan for p in files)
-        what = "ROM, images, vidéos" + (", sauvegardes" if with_saves else "")
-        message = (f"{len(sel)} jeu{'x' if len(sel) > 1 else ''} vont être supprimés de la carte SD.\n"
-                   f"{nfiles} fichiers · {human(size)} ({what}).\n"
-                   "Ils passent par la corbeille : tu pourras annuler. Vide la corbeille pour libérer la place.")
+        nfiles = sum(len(f) for _g, f in plan)
+        size = sum(core.path_size(p) for _g, files in plan for p in files)
+        what = _("ROM, images, vidéos, sauvegardes") if with_saves else _("ROM, images, vidéos")
+        message = (_n(len(sel), "{n} jeu va être supprimé de la carte SD.",
+                      "{n} jeux vont être supprimés de la carte SD.") + "\n"
+                   + _("{files} fichiers · {size} ({what}).", files=nfiles, size=human(size), what=what) + "\n"
+                   + _("Ils passent par la corbeille : tu pourras annuler. Vide la corbeille pour libérer la place."))
         if not ask_delete(self, message, "\n".join(f"> {g.name}" for g in sel)):
             return
         root = self.root_path
@@ -989,20 +1040,20 @@ class App(ToolsMixin, BaseTk):
             for i, (g, files) in enumerate(plan):
                 if cancel.is_set():
                     break
-                report(i, f"Suppression : {g.name}")
+                report(i, _("Suppression : {name}", name=g.name))
                 errors += core.delete_game(root, g, files)
             return errors
 
         def done(errors):
             self._forget_games(sel)
             gone = sum(1 for g in sel if not os.path.exists(g.path))
-            self.flash(f"{gone} jeu{'x' if gone > 1 else ''} supprimé{'s' if gone > 1 else ''}"
-                       f"  ·  {human(size)} dans la corbeille", T.GREEN)
+            self.flash(_n(gone, "{n} jeu supprimé", "{n} jeux supprimés") + "  ·  "
+                       + _("{size} dans la corbeille", size=human(size)), T.GREEN)
             if errors:
-                info(self, "Erreurs", "Certains fichiers n'ont pas pu être supprimés :", "\n".join(errors[:30]))
+                info(self, _("Erreurs"), _("Certains fichiers n'ont pas pu être supprimés :"), "\n".join(errors[:30]))
 
-        self.run_in_background("Suppression", "trash", len(plan), work, done,
-                               f"Suppression de {len(sel)} jeu{'x' if len(sel) > 1 else ''}")
+        self.run_in_background(_("Suppression"), "trash", len(plan), work, done,
+                               _n(len(sel), "Suppression de {n} jeu", "Suppression de {n} jeux"))
 
     def open_folder(self):
         if len(self.selection) == 1:

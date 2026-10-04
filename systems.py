@@ -7,6 +7,7 @@ import os
 import zlib
 
 import theme as T
+from i18n import _
 
 SYSTEMS = {
     "3do": ("3DO", "disc"),
@@ -153,7 +154,7 @@ PALETTE = (T.CYAN, T.MAGENTA, T.YELLOW, T.GREEN, T.ORANGE, "#a77bff", "#3e8bff",
 
 
 def name(key):
-    return SYSTEMS.get(key.lower(), (key.upper(), "cart"))[0]
+    return _(SYSTEMS.get(key.lower(), (key.upper(), "cart"))[0])  # seul « Vidéos » se traduit
 
 
 def kind(key):

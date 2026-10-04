@@ -21,3 +21,6 @@ settings.local.json
 
 # Ancien dépôt local séparé (pas une partie du projet)
 R36S manager/
+
+# Réglages de l utilisateur (créés par le programme)
+settings.json

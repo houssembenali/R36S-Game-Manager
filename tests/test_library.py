@@ -85,3 +85,12 @@ def test_video_found_by_name_with_skraper_hash(card):
     write(card, "gba/media/videos/Wario Land 4 (USA, Europe) 61410ADC3AFEC234617D8BC895823AFF.mp4", b"v")
     wario = next(g for g in core.load_all(card)["gba"] if "Wario" in g.path)
     assert core.video_for(wario).endswith("61410ADC3AFEC234617D8BC895823AFF.mp4")
+
+
+def test_easyroms_detection(card, tmp_path):
+    assert core.looks_like_easyroms(card)
+    other = tmp_path / "C_drive"
+    for d in ("Windows", "Users", "Program Files"):
+        (other / d).mkdir(parents=True)
+    assert not core.looks_like_easyroms(str(other))
+    assert not core.looks_like_easyroms(str(tmp_path / "absent"))

@@ -159,7 +159,7 @@ def fetch_bytes(game, tag):
     system_name = LIBRETRO.get(game.system.lower())
     if not system_name:
         return None
-    for kind, t, _ in KINDS:
+    for kind, t, _x in KINDS:
         if t == tag:
             match = best_match(game, _listing(system_name, kind))
             if match:

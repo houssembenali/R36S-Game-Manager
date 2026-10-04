@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 
 import core
 import journal
+from i18n import _
 
 HIDDEN_DIR = ".multidisc"
 DISC_EXT = {".cue", ".ccd", ".chd", ".pbp", ".iso", ".cdi", ".gdi", ".mds", ".toc"}
@@ -45,7 +46,7 @@ def find_groups(games_by_system):
                 continue
             key = (os.path.normcase(os.path.dirname(g.path)), clean_title(g.stem).lower())
             buckets.setdefault(key, {}).setdefault(int(m.group(1)), g)  # un fichier par disque
-        for (_, _), discs in buckets.items():
+        for (_x, _x), discs in buckets.items():
             if len(discs) < 2:
                 continue
             ordered = sorted(discs.items())
@@ -58,11 +59,11 @@ def create_m3u(root, group):
     """Crée le .m3u, range les disques dans .multidisc et fusionne les fiches. Retourne (chemin m3u, erreurs)."""
     m3u = os.path.join(group.folder, group.title + ".m3u")
     if os.path.exists(m3u):
-        return None, [f"{os.path.basename(m3u)} existe déjà"]
+        return None, [_("{file} existe déjà", file=os.path.basename(m3u))]
     hidden = os.path.join(group.folder, HIDDEN_DIR)
     os.makedirs(hidden, exist_ok=True)
     lines, errors = [], []
-    for _, g in group.discs:
+    for _x, g in group.discs:
         for f in core.game_files(g):
             if os.path.isfile(f) and core.same(os.path.dirname(f), group.folder):
                 try:
@@ -90,7 +91,7 @@ def create_m3u(root, group):
 
 
 def _merge_entries(top, entries, group, m3u, root):
-    els = [entries.get(core._key_of(g.path)) for _, g in group.discs]
+    els = [entries.get(core._key_of(g.path)) for _x, g in group.discs]
     base = next((e for e in els if e is not None), None)
     new = ET.Element("game")
     if base is not None:

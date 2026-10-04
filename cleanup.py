@@ -15,17 +15,24 @@ from dataclasses import dataclass
 import core
 import journal
 import systems
+from i18n import _
 
-# clé -> (titre, explication, cochée par défaut)
-CATEGORIES = {
-    "media": ("Médias orphelins", "Images, vidéos et manuels de jeux qui ne sont plus sur la carte.", True),
-    "entry": ("Fiches sans jeu", "Entrées du gamelist.xml dont la ROM a été supprimée.", True),
-    "save": ("Sauvegardes sans jeu", "Sauvegardes (.srm, .state…) de jeux qui ne sont plus sur la carte.", False),
-    "misplaced": ("Jeux dans le mauvais dossier",
-                  "ROM dont le format ne correspond pas à la console du dossier : la console ne la lancera pas.",
-                  False),
-    "oldlist": ("Anciennes copies de gamelist", "gamelist.xml.old, gamelist.backup.xml, gamelist.xml.bak…", False),
-}
+def categories():
+    """clé -> (titre, explication, cochée par défaut), dans la langue de l'interface."""
+    return {
+        "media": (_("Médias orphelins"), _("Images, vidéos et manuels de jeux qui ne sont plus sur la carte."), True),
+        "entry": (_("Fiches sans jeu"), _("Entrées du gamelist.xml dont la ROM a été supprimée."), True),
+        "save": (_("Sauvegardes sans jeu"),
+                 _("Sauvegardes (.srm, .state…) de jeux qui ne sont plus sur la carte."), False),
+        "misplaced": (_("Jeux dans le mauvais dossier"),
+                      _("ROM dont le format ne correspond pas à la console du dossier : la console ne la lancera pas."),
+                      False),
+        "oldlist": (_("Anciennes copies de gamelist"),
+                    "gamelist.xml.old, gamelist.backup.xml, gamelist.xml.bak…", False),
+    }
+
+
+CATEGORIES = categories()  # clés des catégories (les libellés sont relus via categories())
 
 # suffixes ajoutés par les scrapers d'EmulationStation (« jeu-image.png »)
 _SCRAPER_SUFFIX = re.compile(r"-(image|thumb|thumbnail|marquee|video|box|fanart|screenshot)$", re.I)
@@ -56,7 +63,7 @@ def _orphan_media(system, sysdir, games):
     for entry in os.scandir(sysdir):
         if not (entry.is_dir() and entry.name.lower() in core.MEDIA_DIRS):
             continue
-        for dirpath, _, files in os.walk(entry.path):
+        for dirpath, _x, files in os.walk(entry.path):
             for f in files:
                 p = os.path.normpath(os.path.join(dirpath, f))
                 if os.path.normcase(p) in used or any(s in stems for s in _media_stem(f)):
@@ -108,8 +115,8 @@ def _misplaced(system, games):
         if os.path.isdir(g.path) or systems.valid_extension(system, g.path):
             continue
         targets = [systems.name(s) for s in systems.systems_for_extension(g.path) if s != system.lower()]
-        note = ("plutôt pour : " + ", ".join(dict.fromkeys(targets)) if targets
-                else "format non pris en charge par cette console")
+        note = (_("plutôt pour : {systems}", systems=", ".join(dict.fromkeys(targets))) if targets
+                else _("format non pris en charge par cette console"))
         yield Issue("misplaced", system, g.path, g.size, note, g)
 
 

@@ -5,6 +5,8 @@ Pour ajouter une région : une entrée dans REGIONS (+ son drapeau dans icons.FL
 """
 import re
 
+import i18n
+
 # étiquette (minuscules) -> code ; le code sert aussi de nom de drapeau dans icons.FLAGS
 ALIASES = {
     "usa": "us", "u": "us", "us": "us", "america": "us",
@@ -26,6 +28,19 @@ LANGUAGES = {
     "nl": "Néerlandais", "pt": "Portugais", "sv": "Suédois", "no": "Norvégien", "da": "Danois",
     "fi": "Finnois", "ja": "Japonais", "pl": "Polonais", "zh": "Chinois", "ko": "Coréen", "ru": "Russe",
     "ca": "Catalan", "el": "Grec", "tr": "Turc", "cs": "Tchèque", "hu": "Hongrois",
+}
+
+
+REGIONS_EN = {
+    "us": "USA", "eu": "Europe", "jp": "Japan", "world": "World", "fr": "France", "de": "Germany",
+    "es": "Spain", "it": "Italy", "gb": "United Kingdom", "au": "Australia", "br": "Brazil", "kr": "Korea",
+    "cn": "China", "tw": "Taiwan", "asia": "Asia", "ca": "Canada", "nl": "Netherlands", "se": "Sweden",
+}
+LANGUAGES_EN = {
+    "en": "English", "fr": "French", "de": "German", "es": "Spanish", "it": "Italian", "nl": "Dutch",
+    "pt": "Portuguese", "sv": "Swedish", "no": "Norwegian", "da": "Danish", "fi": "Finnish", "ja": "Japanese",
+    "pl": "Polish", "zh": "Chinese", "ko": "Korean", "ru": "Russian", "ca": "Catalan", "el": "Greek",
+    "tr": "Turkish", "cs": "Czech", "hu": "Hungarian",
 }
 
 
@@ -57,8 +72,16 @@ def languages(name):
     return out
 
 
+def region_name(code):
+    return (REGIONS_EN if i18n.LANG == "en" else REGIONS)[code]
+
+
+def language_name(code):
+    return (LANGUAGES_EN if i18n.LANG == "en" else LANGUAGES)[code]
+
+
 def describe(name):
-    """(codes région, texte des régions, texte des langues)."""
+    """(codes région, texte des régions, texte des langues) dans la langue de l'interface."""
     codes = regions(name)
-    return (codes, ", ".join(REGIONS[c] for c in codes),
-            ", ".join(LANGUAGES[c] for c in languages(name)))
+    return (codes, ", ".join(region_name(c) for c in codes),
+            ", ".join(language_name(c) for c in languages(name)))

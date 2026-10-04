@@ -37,7 +37,7 @@
   <img src="docs/screen-filters.jpg" width="49%" alt="Filters">
 </p>
 
-> 🇫🇷 The interface is in French for now.
+> 🌍 Interface in **English** and **French** (follows your system language, switch it in *TOOLS → Language*). Your view, sort order, panel sizes and video sound are remembered.
 
 ## 📥 Download
 
@@ -49,6 +49,8 @@ Grab the file for your system from **[Releases](../../releases/latest)**. Nothin
 | 🐧 Linux x64 | `R36S-Game-Manager-linux-x64.tar.gz` → extract, then `./R36S-Game-Manager` |
 
 > **Optional:** [VLC](https://www.videolan.org) for game videos, [7-Zip](https://www.7-zip.org) (Windows) or `mame-tools` (Linux) for CHD compression.
+
+> 🛡️ **Windows says "Windows protected your PC"?** The executable isn't code-signed (signing certificates are expensive), so SmartScreen warns about any new download. Click **More info → Run anyway**. Some antivirus tools also flag apps built with PyInstaller by mistake: the full source code is here, and you can build the executable yourself with `python build.py`.
 
 ## 🚀 Usage
 

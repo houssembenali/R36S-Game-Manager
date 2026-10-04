@@ -15,6 +15,7 @@ import net
 import core
 import journal
 import paths
+from i18n import _
 
 TOOLS_DIR = paths.data("tools")
 SYSTEMS = {"psx", "segacd", "saturn", "dreamcast", "pcenginecd", "pcengine", "3do", "neogeocd"}
@@ -37,10 +38,10 @@ def find_7zip():
 def download_chdman(report=None, cancel=None):
     """Télécharge MAME (≈ 85 Mo), en extrait chdman.exe dans tools/. Retourne son chemin."""
     if not paths.WINDOWS:
-        raise OSError("Installe chdman avec ton gestionnaire de paquets (ex. : sudo apt install mame-tools)")
+        raise OSError(_("Installe chdman avec ton gestionnaire de paquets (ex. : sudo apt install mame-tools)"))
     seven = find_7zip()
     if not seven:
-        raise OSError("7-Zip est nécessaire pour extraire chdman (https://www.7-zip.org)")
+        raise OSError(_("7-Zip est nécessaire pour extraire chdman (https://www.7-zip.org)"))
     assets = json.loads(net.get("https://api.github.com/repos/mamedev/mame/releases/latest"))["assets"]
     asset = next(a for a in assets if a["name"].endswith("_x64.exe"))
     os.makedirs(TOOLS_DIR, exist_ok=True)
@@ -53,19 +54,20 @@ def download_chdman(report=None, cancel=None):
             f.write(chunk)
             done += len(chunk)
             if report:
-                report(done * 100 // total, f"Téléchargement de MAME : {done >> 20} / {total >> 20} Mo")
+                report(done * 100 // total, _("Téléchargement de MAME : {done} / {total} Mo",
+                                              done=done >> 20, total=total >> 20))
     try:
         if cancel is not None and cancel.is_set():
-            raise OSError("Téléchargement annulé")
+            raise OSError(_("Téléchargement annulé"))
         if report:
-            report(100, "Extraction de chdman…")
+            report(100, _("Extraction de chdman…"))
         subprocess.run([seven, "e", archive, "chdman.exe", f"-o{TOOLS_DIR}", "-y"],
                        check=True, capture_output=True, creationflags=NO_WINDOW)
     finally:
         os.remove(archive)
     path = find_chdman()
     if not path:
-        raise OSError("chdman.exe introuvable dans l'archive MAME")
+        raise OSError(_("chdman.exe introuvable dans l'archive MAME"))
     return path
 
 
@@ -89,7 +91,7 @@ def convert_file(chdman, src, cancel=None):
     Retourne le chemin du .chd."""
     out = os.path.splitext(src)[0] + ".chd"
     if os.path.exists(out):
-        raise OSError(f"{os.path.basename(out)} existe déjà")
+        raise OSError(_("{file} existe déjà", file=os.path.basename(out)))
     parts = [src] + core.components(src)
     proc = subprocess.Popen([chdman, "createcd", "-i", src, "-o", out], stdout=subprocess.DEVNULL,
                             stderr=subprocess.PIPE, creationflags=NO_WINDOW)
@@ -103,9 +105,9 @@ def convert_file(chdman, src, cancel=None):
         if os.path.exists(out):
             os.remove(out)
         if cancel is not None and cancel.is_set():
-            raise OSError("Conversion annulée")
+            raise OSError(_("Conversion annulée"))
         err = proc.stderr.read().decode("utf-8", "replace").strip().splitlines()
-        raise OSError(err[-1] if err else "échec de chdman")
+        raise OSError(err[-1] if err else _("échec de chdman"))
     journal.created(out)
     for p in parts:
         journal.remove(p)  # l'original part dans la corbeille : la compression s'annule

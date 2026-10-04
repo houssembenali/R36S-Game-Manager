@@ -15,6 +15,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 
 import journal
+from i18n import _
 
 # Dossiers à la racine qui ne sont pas des systèmes de jeux
 NOT_SYSTEMS = {"bios", "themes", "backup", "launchimages", "tools", "bgmusic",
@@ -120,9 +121,19 @@ def volume_label(root):
     return ""
 
 
+# Dossiers typiques d'une partition EASYROMS d'ArkOS (au moins 2 doivent être présents)
+EASYROMS_DIRS = {"bios", "themes", "ports", "gb", "gbc", "gba", "nes", "snes", "sfc", "n64", "nds", "psx", "psp",
+                 "megadrive", "genesis", "mastersystem", "gamegear", "segacd", "saturn", "dreamcast", "pcengine",
+                 "neogeo", "mame", "fbneo", "arcade", "cps1", "cps2", "cps3", "atarilynx", "atari2600"}
+
+
 def looks_like_easyroms(root):
-    hits = sum(os.path.isdir(os.path.join(root, d)) for d in ("bios", "gba", "psx", "nes", "themes"))
-    return hits >= 2
+    """Vérification rapide (un seul listage) : la partition ressemble-t-elle à une carte ArkOS ?"""
+    try:
+        names = {e.name.lower() for e in os.scandir(root) if e.is_dir()}
+    except OSError:
+        return False
+    return len(names & EASYROMS_DIRS) >= 2
 
 
 def list_drives():
@@ -141,7 +152,7 @@ def list_drives():
         except OSError:
             continue
         for root in entries:
-            if os.path.ismount(root) and all(r != root for r, _, _ in out):
+            if os.path.ismount(root) and all(r != root for r, _x, _x in out):
                 out.append((root, os.path.basename(root), looks_like_easyroms(root)))
     return out
 
@@ -276,7 +287,7 @@ def candidate_files(sysdir, root_only=False):
 def path_size(p):
     if os.path.isdir(p):
         total = 0
-        for dirpath, _, files in os.walk(p):
+        for dirpath, _x, files in os.walk(p):
             for f in files:
                 try:
                     total += os.path.getsize(os.path.join(dirpath, f))
@@ -373,7 +384,7 @@ def media_usage(root):
         except OSError:
             continue
         for sub in subdirs:
-            for dirpath, _, files in os.walk(sub):
+            for dirpath, _x, files in os.walk(sub):
                 for f in files:
                     ext = os.path.splitext(f)[1].lower()
                     kind = "images" if ext in IMAGE_EXT else "videos" if ext in VIDEO_EXT else None
@@ -647,13 +658,13 @@ def move_game(root, game, target_system, system_games):
     for tag, p in game.media.items():
         if os.path.isfile(p):
             media[tag] = (p, os.path.join(dest_dir, os.path.relpath(p, game.sysdir)))
-    known = {_key_of(src) for src, _ in media.values()}
+    known = {_key_of(src) for src, _x in media.values()}
     extra = [(p, os.path.join(dest_dir, os.path.relpath(p, game.sysdir)))
              for p in fallback_media(game) if _key_of(p) not in known]
 
-    clash = [d for _, d in plan + list(media.values()) + extra if os.path.exists(d)]
+    clash = [d for _x, d in plan + list(media.values()) + extra if os.path.exists(d)]
     if clash:
-        return [f"Existe déjà dans {target_system} : {os.path.basename(clash[0])}"]
+        return [_("{file} : existe déjà dans {system}", file=os.path.basename(clash[0]), system=target_system)]
 
     errors = []
     for src, dst in plan + extra + list(media.values()):
@@ -687,7 +698,7 @@ def move_game(root, game, target_system, system_games):
         if old is not None:
             top.remove(old)
         _set_tag(el, "path", "./" + _rel(new_rom, dest_dir))
-        for tag, (_, dst) in media.items():
+        for tag, (_x, dst) in media.items():
             _set_tag(el, tag, "./" + _rel(dst, dest_dir))
         top.append(el)
     errors += edit_gamelist(root, dest_dir, put)
@@ -737,7 +748,7 @@ def video_files(root, system):
     except OSError:
         return out
     for sub in subdirs:
-        for dirpath, _, files in os.walk(sub):
+        for dirpath, _x, files in os.walk(sub):
             out += [os.path.join(dirpath, f) for f in files if os.path.splitext(f)[1].lower() in VIDEO_EXT]
     return out
 

@@ -11,6 +11,7 @@ import icons
 import scraper
 import systems
 import theme as T
+from i18n import _, _n
 from widgets import PixelButton, RetroCheck, human
 
 
@@ -42,7 +43,7 @@ class RetroWindow(tk.Toplevel):
             left(bar)
         ok = PixelButton(bar, ok_text, icon=ok_icon, style=ok_style, command=self.ok)
         ok.pack(side="right")
-        PixelButton(bar, "ANNULER", command=self.destroy).pack(side="right", padx=10)
+        PixelButton(bar, _("ANNULER"), command=self.destroy).pack(side="right", padx=10)
         return ok
 
     def ok(self):
@@ -108,7 +109,7 @@ class ChecklistDialog(RetroWindow):
         def left(bar):
             self.total = tk.Label(bar, font=T.F["body"], fg=T.TEXT, bg=T.PANEL)
             self.total.pack(side="left")
-            for text, value in (("Tout", True), ("Rien", False)):
+            for text, value in ((_("Tout"), True), (_("Rien"), False)):
                 link = tk.Label(bar, text=text, font=T.F["small"], fg=T.CYAN, bg=T.PANEL, cursor="hand2")
                 link.pack(side="left", padx=(14, 0))
                 link.bind("<Button-1>", lambda e, v=value: self._set_all(v))
@@ -135,7 +136,7 @@ class ChecklistDialog(RetroWindow):
     def _update(self):
         chosen = self._checked()
         size = sum(self.items[i][3] or 0 for i in chosen)
-        self.total.configure(text=f"{len(chosen)} sélectionné{'s' if len(chosen) > 1 else ''}"
+        self.total.configure(text=_n(len(chosen), "{n} sélectionné", "{n} sélectionnés")
                                   + (f"  ·  {human(size)}" if size else ""))
         self.ok_btn.set_enabled(bool(chosen))
 
@@ -149,20 +150,20 @@ class ImportDialog(RetroWindow):
     rows = [(chemin, système deviné ou None, taille)]. Résultat : ([(chemin, système)], chercher_images)."""
 
     def __init__(self, parent, rows, available, free):
-        super().__init__(parent, "Ajouter des jeux", "plus")
+        super().__init__(parent, _("Ajouter des jeux"), "plus")
         self.rows = [list(r) for r in rows]
         self.choices = sorted(set(available) | set(systems.EXTENSIONS), key=lambda s: systems.name(s).lower())
         self.labels = {f"{systems.name(s)}  ({s})": s for s in self.choices}
         self.free = free
-        tk.Label(self.body, text="Vérifie la console de chaque jeu. Sélectionne une ou plusieurs lignes "
-                 "pour changer leur console.", font=T.F["body"], fg=T.TEXT, bg=T.PANEL,
+        tk.Label(self.body, text=_("Vérifie la console de chaque jeu. Sélectionne une ou plusieurs lignes "
+                                   "pour changer leur console."), font=T.F["body"], fg=T.TEXT, bg=T.PANEL,
                  wraplength=700, justify="left", anchor="w").pack(fill="x", pady=(0, 10))
         frame = tk.Frame(self.body, bg=T.PANEL)
         frame.pack(fill="both", expand=True)
         self.tree = ttk.Treeview(frame, columns=("system", "size"), show="tree headings", height=min(12, len(rows)))
-        self.tree.heading("#0", text="FICHIER", anchor="w")
-        self.tree.heading("system", text="CONSOLE", anchor="w")
-        self.tree.heading("size", text="TAILLE", anchor="e")
+        self.tree.heading("#0", text=_("FICHIER"), anchor="w")
+        self.tree.heading("system", text=_("CONSOLE"), anchor="w")
+        self.tree.heading("size", text=_("TAILLE"), anchor="e")
         self.tree.column("#0", width=380)
         self.tree.column("system", width=220)
         self.tree.column("size", width=90, anchor="e")
@@ -174,35 +175,35 @@ class ImportDialog(RetroWindow):
 
         pick = tk.Frame(self.body, bg=T.PANEL)
         pick.pack(fill="x", pady=(10, 0))
-        tk.Label(pick, text="Console de la sélection :", font=T.F["small"], fg=T.MUTED, bg=T.PANEL).pack(side="left")
+        tk.Label(pick, text=_("Console de la sélection :"), font=T.F["small"], fg=T.MUTED, bg=T.PANEL).pack(side="left")
         self.combo = ttk.Combobox(pick, values=list(self.labels), state="readonly", width=34, font=T.F["body"])
         self.combo.pack(side="left", padx=8)
         self.combo.bind("<<ComboboxSelected>>", lambda e: self._assign())
         self.scrape = tk.BooleanVar(value=True)
-        RetroCheck(self.body, "Compléter ensuite les fiches depuis internet (image, description, année, genre…)",
+        RetroCheck(self.body, _("Compléter ensuite les fiches depuis internet (image, description, année, genre…)"),
                    self.scrape).pack(anchor="w", pady=(10, 0))
 
         def left(bar):
             self.total = tk.Label(bar, font=T.F["body"], fg=T.TEXT, bg=T.PANEL)
             self.total.pack(side="left")
-        self.ok_btn = self.buttons("AJOUTER", "plus", left=left)
+        self.ok_btn = self.buttons(_("AJOUTER"), "plus", left=left)
         self._fill()
 
     def _fill(self):
         sel = self.tree.selection()
         self.tree.delete(*self.tree.get_children())
         for i, (path, system, size) in enumerate(self.rows):
-            label = f"{systems.name(system)}  ({system})" if system else "⚠ à choisir"
+            label = f"{systems.name(system)}  ({system})" if system else "⚠ " + _("à choisir")
             self.tree.insert("", "end", iid=str(i), text="  " + os.path.basename(path), values=(label, human(size)),
                              tags=() if system else ("missing",))
         self.tree.selection_set(sel)
         missing = sum(1 for r in self.rows if not r[1])
         size = sum(r[2] for r in self.rows)
-        text = f"{len(self.rows)} jeu{'x' if len(self.rows) > 1 else ''}  ·  {human(size)}"
+        text = _n(len(self.rows), "{n} jeu", "{n} jeux") + f"  ·  {human(size)}"
         if size > self.free:
-            text += f"  ·  ⚠ pas assez de place ({human(self.free)} libres)"
+            text += "  ·  ⚠ " + _("pas assez de place ({free} libres)", free=human(self.free))
         elif missing:
-            text += f"  ·  {missing} sans console"
+            text += "  ·  " + _n(missing, "{n} jeu sans console", "{n} jeux sans console")
         self.total.configure(text=text, fg=T.RED if size > self.free else T.TEXT)
         self.ok_btn.set_enabled(not missing and size <= self.free)
 
@@ -213,7 +214,7 @@ class ImportDialog(RetroWindow):
         self._fill()
 
     def ok(self):
-        self.result = ([(p, s) for p, s, _ in self.rows if s], self.scrape.get())  # sans console : ignoré
+        self.result = ([(p, s) for p, s, _x in self.rows if s], self.scrape.get())  # sans console : ignoré
         self.destroy()
 
 
@@ -261,9 +262,11 @@ class ImageSlot(tk.Frame):
         self._blank = tk.PhotoImage(width=self.PREVIEW[0], height=self.PREVIEW[1])
         row = tk.Frame(self, bg=T.PANEL2)
         row.pack()
-        for i, (text, command) in enumerate((("FICHIER", self._from_file), ("COLLER", self._from_clipboard),
-                                             ("INTERNET", self._from_internet), ("RETIRER", self._remove))):
-            b = PixelButton(row, text, command=command, style="danger" if text == "RETIRER" else "normal")
+        for i, (text, command, style) in enumerate(((_("FICHIER"), self._from_file, "normal"),
+                                                    (_("COLLER"), self._from_clipboard, "normal"),
+                                                    (_("INTERNET"), self._from_internet, "normal"),
+                                                    (_("RETIRER"), self._remove, "danger"))):
+            b = PixelButton(row, text, command=command, style=style)
             b.configure(padx=8, pady=4)
             b.grid(row=0, column=i, padx=2)
         current = next((game.media[t] for t in scraper.SLOTS[tag][0]
@@ -273,7 +276,7 @@ class ImageSlot(tk.Frame):
     def _show(self, im, text=""):
         if im is None:
             self._photo = None
-            self.preview.configure(image=self._blank, text=text or "Aucune image")
+            self.preview.configure(image=self._blank, text=text or _("Aucune image"))
             return
         im = im.convert("RGBA")
         im.thumbnail(self.PREVIEW)
@@ -295,11 +298,11 @@ class ImageSlot(tk.Frame):
                 self._show(im.copy())
             self.change = data
         except OSError:
-            self._show(None, "Fichier non reconnu comme image")
+            self._show(None, _("Fichier non reconnu comme image"))
 
     def _from_file(self):
-        path = filedialog.askopenfilename(parent=self, title="Choisir une image", filetypes=[
-            ("Images", "*.png *.jpg *.jpeg *.gif *.bmp *.webp"), ("Tous les fichiers", "*.*")])
+        path = filedialog.askopenfilename(parent=self, title=_("Choisir une image"), filetypes=[
+            (_("Images"), "*.png *.jpg *.jpeg *.gif *.bmp *.webp"), (_("Tous les fichiers"), "*.*")])
         if path:
             with open(path, "rb") as f:
                 self._set(f.read())
@@ -310,13 +313,13 @@ class ImageSlot(tk.Frame):
             with open(clip[0], "rb") as f:
                 return self._set(f.read())
         if clip is None or isinstance(clip, list):
-            return self._show(None, "Presse-papiers sans image")
+            return self._show(None, _("Presse-papiers sans image"))
         buf = io.BytesIO()
         clip.save(buf, "PNG")
         self._set(buf.getvalue())
 
     def _from_internet(self):
-        self._show(None, "Recherche…")
+        self._show(None, _("Recherche…"))
         result = {}
         thread = threading.Thread(target=lambda: result.update(data=scraper.fetch_bytes(self.game, self.tag)),
                                   daemon=True)
@@ -328,7 +331,7 @@ class ImageSlot(tk.Frame):
             elif result.get("data"):
                 self._set(result["data"])
             else:
-                self._show(None, "Introuvable sur internet")
+                self._show(None, _("Introuvable sur internet"))
         poll()
 
     def _remove(self):
@@ -342,21 +345,21 @@ class EditDialog(RetroWindow):
               ("publisher", "Éditeur"), ("players", "Joueurs"))
 
     def __init__(self, parent, game):
-        super().__init__(parent, "Modifier la fiche", "edit")
+        super().__init__(parent, _("Modifier la fiche"), "edit")
         top = tk.Frame(self.body, bg=T.PANEL)
         top.pack(fill="x")
         grid = tk.Frame(top, bg=T.PANEL)
         grid.pack(side="left", fill="x", anchor="n")
         images = tk.Frame(top, bg=T.PANEL)
         images.pack(side="left", anchor="n", padx=(22, 0))
-        self.slots = [ImageSlot(images, game, "image", "IMAGE (fiche du jeu)"),
-                      ImageSlot(images, game, "thumbnail", "JAQUETTE (vue grille)")]
+        self.slots = [ImageSlot(images, game, "image", _("IMAGE (fiche du jeu)")),
+                      ImageSlot(images, game, "thumbnail", _("JAQUETTE (vue grille)"))]
         for slot in self.slots:
             slot.pack(pady=(0, 10))
         current = {"name": game.name, "year": game.info.get("releasedate", "")[:4]}
         self.entries = {}
         for r, (key, label) in enumerate(self.FIELDS):
-            tk.Label(grid, text=T.px(label), font=T.F["tiny"], fg=T.MAGENTA, bg=T.PANEL,
+            tk.Label(grid, text=T.px(_(label)), font=T.F["tiny"], fg=T.MAGENTA, bg=T.PANEL,
                      anchor="w").grid(row=r, column=0, sticky="w", pady=4)
             e = tk.Entry(grid, bg=T.PANEL2, fg=T.TEXT, insertbackground=T.CYAN, relief="flat", font=T.F["body"],
                          width=40, highlightthickness=1, highlightbackground=T.BORDER, highlightcolor=T.CYAN)
@@ -364,22 +367,22 @@ class EditDialog(RetroWindow):
             e.grid(row=r, column=1, sticky="we", padx=(14, 0), ipady=4)
             self.entries[key] = e
         r = len(self.FIELDS)
-        tk.Label(grid, text="NOTE", font=T.F["tiny"], fg=T.MAGENTA, bg=T.PANEL).grid(row=r, column=0, sticky="w", pady=6)
+        tk.Label(grid, text=_("NOTE"), font=T.F["tiny"], fg=T.MAGENTA, bg=T.PANEL).grid(row=r, column=0, sticky="w", pady=6)
         stars = tk.Frame(grid, bg=T.PANEL)
         stars.grid(row=r, column=1, sticky="w", padx=(14, 0))
         self.stars = StarPicker(stars, game.rating)
         self.stars.pack(side="left")
-        clear = tk.Label(stars, text="Effacer", font=T.F["small"], fg=T.CYAN, bg=T.PANEL, cursor="hand2")
+        clear = tk.Label(stars, text=_("Effacer"), font=T.F["small"], fg=T.CYAN, bg=T.PANEL, cursor="hand2")
         clear.pack(side="left", padx=14)
         clear.bind("<Button-1>", lambda e: (setattr(self.stars, "value", None), self.stars._draw(None)))
-        tk.Label(self.body, text="DESCRIPTION", font=T.F["tiny"], fg=T.MAGENTA, bg=T.PANEL,
+        tk.Label(self.body, text=_("DESCRIPTION"), font=T.F["tiny"], fg=T.MAGENTA, bg=T.PANEL,
                  anchor="w").pack(fill="x", pady=(10, 4))
         self.desc = tk.Text(self.body, height=7, width=70, wrap="word", bg=T.PANEL2, fg=T.TEXT, font=T.F["small"],
                             insertbackground=T.CYAN, relief="flat", padx=8, pady=6, highlightthickness=1,
                             highlightbackground=T.BORDER, highlightcolor=T.CYAN)
         self.desc.insert("1.0", game.info.get("desc", ""))
         self.desc.pack(fill="x")
-        self.buttons("ENREGISTRER", "save")
+        self.buttons(_("ENREGISTRER"), "save")
 
     def ok(self):
         values = {k: e.get() for k, e in self.entries.items()}
@@ -395,15 +398,15 @@ class HistoryDialog(RetroWindow):
     history = [(id, libellé, date ISO, taille)]. Résultat : "undo", "empty" ou None."""
 
     def __init__(self, parent, history, trash):
-        super().__init__(parent, "Historique et corbeille", "undo")
-        intro = ("Les fichiers supprimés ou remplacés sont gardés dans une corbeille cachée sur la carte : "
-                 "on peut annuler la dernière opération, puis la précédente… Vider la corbeille libère la place "
-                 "mais rend ces opérations définitives.") if history else "Aucune opération à annuler."
+        super().__init__(parent, _("Historique et corbeille"), "undo")
+        intro = _("Les fichiers supprimés ou remplacés sont gardés dans une corbeille cachée sur la carte : "
+                  "on peut annuler la dernière opération, puis la précédente… Vider la corbeille libère la place "
+                  "mais rend ces opérations définitives.") if history else _("Aucune opération à annuler.")
         tk.Label(self.body, text=intro, font=T.F["body"], fg=T.TEXT, bg=T.PANEL, justify="left",
                  wraplength=640, anchor="w").pack(fill="x", pady=(0, 10))
         if history:
             inner = scroll_area(self.body, min(320, 38 * len(history) + 10))
-            for i, (_, label, date, size) in enumerate(history):
+            for i, (_op_id, label, date, size) in enumerate(history):
                 row = tk.Frame(inner, bg=T.PANEL2, padx=12, pady=6)
                 row.pack(fill="x")
                 when = f"{date[8:10]}/{date[5:7]}  {date[11:16]}"
@@ -414,14 +417,14 @@ class HistoryDialog(RetroWindow):
                 tk.Label(row, text=human(size), font=T.F["small"], fg=T.MUTED, bg=T.PANEL2).pack(side="right")
         bar = tk.Frame(self.body, bg=T.PANEL)
         bar.pack(fill="x", pady=(16, 0))
-        empty = PixelButton(bar, f"VIDER LA CORBEILLE ({human(trash)})", icon="trash", style="danger",
+        empty = PixelButton(bar, f"{_('VIDER LA CORBEILLE')} ({human(trash)})", icon="trash", style="danger",
                             command=lambda: self._choose("empty"))
         empty.pack(side="left")
         empty.set_enabled(trash > 0 or bool(history))
-        undo = PixelButton(bar, "ANNULER LA DERNIÈRE", icon="undo", command=lambda: self._choose("undo"))
+        undo = PixelButton(bar, _("ANNULER LA DERNIÈRE"), icon="undo", command=lambda: self._choose("undo"))
         undo.pack(side="right")
         undo.set_enabled(bool(history))
-        PixelButton(bar, "FERMER", command=self.destroy).pack(side="right", padx=10)
+        PixelButton(bar, _("FERMER"), command=self.destroy).pack(side="right", padx=10)
 
     def _choose(self, value):
         self.result = value

@@ -13,6 +13,7 @@ import icons
 import logos
 import systems
 import theme as T
+from i18n import _, _n
 
 
 class PixelButton(tk.Label):
@@ -26,7 +27,7 @@ class PixelButton(tk.Label):
 
     def __init__(self, master, text="", icon=None, command=None, style="normal", scale=2):
         self.colors = self.STYLES[style]
-        bg, fg, outline, _, _ = self.colors
+        bg, fg, outline, _x, _x = self.colors
         super().__init__(master, text=text, font=T.F["btn"], bg=bg, fg=fg, bd=0, padx=12, pady=8,
                          highlightthickness=2, highlightbackground=outline, highlightcolor=outline,
                          cursor="hand2", compound="left")
@@ -78,7 +79,7 @@ class Tooltip:
         widget.bind("<Enter>", self.show, add="+")
         widget.bind("<Leave>", self.hide, add="+")
 
-    def show(self, _):
+    def show(self, _x):
         x = self.widget.winfo_rootx()
         y = self.widget.winfo_rooty() + self.widget.winfo_height() + 6
         self.tip = tk.Toplevel(self.widget)
@@ -87,7 +88,7 @@ class Tooltip:
         tk.Label(self.tip, text=self.text, font=T.F["small"], bg=T.PANEL2, fg=T.TEXT, padx=10, pady=6,
                  highlightthickness=1, highlightbackground=T.CYAN).pack()
 
-    def hide(self, _):
+    def hide(self, _x):
         if self.tip:
             self.tip.destroy()
             self.tip = None
@@ -103,7 +104,7 @@ class RetroCheck(tk.Label):
         self.bind("<Button-1>", self._toggle)
         self._paint()
 
-    def _toggle(self, _):
+    def _toggle(self, _x):
         self.var.set(not self.var.get())
         self._paint()
         if self.command:
@@ -187,8 +188,8 @@ def _dialog(parent, title, message, details, buttons, accent, icon_name):
 
 
 def ask_delete(parent, message, details):
-    return bool(_dialog(parent, "Supprimer ?", message, details,
-                        [("ANNULER", "normal", False), ("SUPPRIMER", "danger", True)],
+    return bool(_dialog(parent, _("Supprimer ?"), message, details,
+                        [(_("ANNULER"), "normal", False), (_("SUPPRIMER"), "danger", True)],
                         T.RED, "warning"))
 
 
@@ -202,7 +203,7 @@ class CleanupDialog(tk.Toplevel):
     def __init__(self, parent, root, categories, issues):
         super().__init__(parent, bg=T.CYAN)
         self.withdraw()
-        self.title("Nettoyage de la carte")
+        self.title(_("Nettoyage de la carte"))
         self.resizable(False, False)
         self.transient(parent)
         self.result = None
@@ -215,7 +216,7 @@ class CleanupDialog(tk.Toplevel):
         head = tk.Frame(box, bg=T.PANEL)
         head.pack(fill="x", pady=(0, 10))
         tk.Label(head, image=icons.icon("broom", T.CYAN, 3), bg=T.PANEL).pack(side="left")
-        tk.Label(head, text="NETTOYAGE DE LA CARTE", font=T.F["h1"], fg=T.CYAN,
+        tk.Label(head, text=T.px(_("Nettoyage de la carte")), font=T.F["h1"], fg=T.CYAN,
                  bg=T.PANEL).pack(side="left", padx=12)
         for kind, (title, explain, default) in categories.items():
             self._category(box, root, kind, title, explain, default)
@@ -224,8 +225,8 @@ class CleanupDialog(tk.Toplevel):
         bottom.pack(fill="x", pady=(16, 0))
         self.total = tk.Label(bottom, font=T.F["body"], fg=T.TEXT, bg=T.PANEL)
         self.total.pack(side="left")
-        PixelButton(bottom, "NETTOYER", icon="broom", style="danger", command=self._ok).pack(side="right")
-        PixelButton(bottom, "ANNULER", command=self.destroy).pack(side="right", padx=10)
+        PixelButton(bottom, _("NETTOYER"), icon="broom", style="danger", command=self._ok).pack(side="right")
+        PixelButton(bottom, _("ANNULER"), command=self.destroy).pack(side="right", padx=10)
         self.bind("<Escape>", lambda e: self.destroy())
         self._update_total()
 
@@ -243,7 +244,7 @@ class CleanupDialog(tk.Toplevel):
         frame.pack(fill="x", pady=3)
         size = sum(i.size for i in items)
         if not items:
-            tk.Label(frame, text=f"✓  {title} : rien à nettoyer", font=T.F["body"], fg=T.GREEN,
+            tk.Label(frame, text="✓  " + _("{title} : rien à nettoyer", title=title), font=T.F["body"], fg=T.GREEN,
                      bg=T.PANEL2, anchor="w").pack(fill="x")
             return
         self.vars[kind] = tk.BooleanVar(value=default)
@@ -251,7 +252,7 @@ class CleanupDialog(tk.Toplevel):
         row.pack(fill="x")
         count = f"{title}  ·  {len(items)}" + (f"  ·  {human(size)}" if size else "")
         RetroCheck(row, count, self.vars[kind], command=self._update_total, bg=T.PANEL2).pack(side="left")
-        link = tk.Label(row, text="▸ Voir le détail", font=T.F["small"], fg=T.CYAN, bg=T.PANEL2,
+        link = tk.Label(row, text="▸ " + _("Voir le détail"), font=T.F["small"], fg=T.CYAN, bg=T.PANEL2,
                         cursor="hand2")
         link.pack(side="right")
         tk.Label(frame, text=explain, font=T.F["small"], fg=T.MUTED, bg=T.PANEL2, anchor="w",
@@ -269,14 +270,14 @@ class CleanupDialog(tk.Toplevel):
         text.configure(state="disabled")
         self._details.append((details, link))
 
-        def toggle(_):
+        def toggle(_x):
             opened = details.winfo_ismapped()
             for d, lk in self._details:  # un seul détail ouvert à la fois
                 d.pack_forget()
-                lk.configure(text="▸ Voir le détail")
+                lk.configure(text="▸ " + _("Voir le détail"))
             if not opened:
                 details.pack(fill="x", pady=(8, 0))
-                link.configure(text="▾ Masquer le détail")
+                link.configure(text="▾ " + _("Masquer le détail"))
         link.bind("<Button-1>", toggle)
 
     def _selected(self):
@@ -285,8 +286,8 @@ class CleanupDialog(tk.Toplevel):
     def _update_total(self):
         sel = self._selected()
         size = sum(i.size for i in sel)
-        self.total.configure(text=f"{len(sel)} élément{'s' if len(sel) > 1 else ''} à nettoyer"
-                                  f"  ·  {human(size)} libérés" if sel else "Rien de coché")
+        self.total.configure(text=_n(len(sel), "{n} élément à nettoyer", "{n} éléments à nettoyer")
+                                  + "  ·  " + _("{size} libérés", size=human(size)) if sel else _("Rien de coché"))
 
     def _ok(self):
         self.result = self._selected()
@@ -319,7 +320,7 @@ class ProgressDialog(tk.Toplevel):
         self.stats.pack(fill="x", pady=(8, 0))
         row = tk.Frame(box, bg=T.PANEL)
         row.pack(anchor="e", pady=(14, 0))
-        PixelButton(row, "ANNULER", command=on_cancel).pack()
+        PixelButton(row, _("ANNULER"), command=on_cancel).pack()
         self.update_idletasks()
         x = parent.winfo_rootx() + (parent.winfo_width() - self.winfo_reqwidth()) // 2
         y = parent.winfo_rooty() + (parent.winfo_height() - self.winfo_reqheight()) // 3
@@ -497,7 +498,7 @@ class GameGrid(tk.Frame):
         cv = self.canvas
         cv.delete("all")
         if not self.games:
-            cv.create_text(cv.winfo_width() // 2, 120, text="AUCUN JEU", font=T.F["h1"], fill=T.MUTED)
+            cv.create_text(cv.winfo_width() // 2, 120, text=T.px(_("Aucun jeu")), font=T.F["h1"], fill=T.MUTED)
             return
         top, h = cv.canvasy(0), cv.winfo_height()
         step = self.CH + self.GAP
@@ -634,7 +635,7 @@ class GameGrid(tk.Frame):
         self._notify()
 
     def _ensure_visible(self, i):
-        _, y = self._pos(i)
+        _x, y = self._pos(i)
         top, h = self.canvas.canvasy(0), self.canvas.winfo_height()
         total = float(self.canvas.cget("scrollregion").split()[3]) or 1
         if y < top:
@@ -644,8 +645,9 @@ class GameGrid(tk.Frame):
 
 
 def human(n):
-    for unit in ("o", "Ko", "Mo", "Go"):
+    units = _("o Ko Mo Go To").split()  # B KB MB GB TB en anglais
+    for unit in units[:-1]:
         if n < 1024:
-            return f"{n:.0f} {unit}" if unit == "o" else f"{n:.1f} {unit}"
+            return f"{n:.0f} {unit}" if unit == units[0] else f"{n:.1f} {unit}"
         n /= 1024
-    return f"{n:.1f} To"
+    return f"{n:.1f} {units[-1]}"

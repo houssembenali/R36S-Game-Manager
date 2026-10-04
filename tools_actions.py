@@ -2,24 +2,31 @@
 
 Chaque action prépare son travail, le lance avec self.run_in_background() (fenêtre de
 chargement, pas de gel) puis rafraîchit l'affichage avec self.reload_systems().
+Textes affichés : via _() / _n() (voir i18n.py).
 """
 import datetime
 import os
+import subprocess
+import sys
 import tkinter as tk
 from tkinter import filedialog
 
 import bios
 import chd
 import core
+import i18n
 import importer
 import journal
 import metadata
 import multidisc
+import paths
 import saves
 import scraper
+import settings
 import systems
 import theme as T
 from dialogs import ChecklistDialog, EditDialog, HistoryDialog, ImportDialog, ReportDialog
+from i18n import _, _n
 from widgets import _dialog, human, info
 
 
@@ -32,24 +39,30 @@ class ToolsMixin:
     def show_tools_menu(self, widget):
         m = self._menu()
         ready = bool(self.root_path)
-        for label, command in (("Ajouter des jeux…", self.add_games),
+        for label, command in ((_("Ajouter des jeux…"), self.add_games),
                                (None, None),
-                               ("Compléter les fiches incomplètes…", self.complete_cards),
-                               ("Regrouper les jeux multi-disques…", self.group_multidisc),
-                               ("Compresser les jeux CD en CHD…", self.compress_chd),
-                               ("Supprimer des vidéos…", self.delete_videos_tool),
-                               ("Nettoyer la carte…", self.cleanup),
+                               (_("Compléter les fiches incomplètes…"), self.complete_cards),
+                               (_("Regrouper les jeux multi-disques…"), self.group_multidisc),
+                               (_("Compresser les jeux CD en CHD…"), self.compress_chd),
+                               (_("Supprimer des vidéos…"), self.delete_videos_tool),
+                               (_("Nettoyer la carte…"), self.cleanup),
                                (None, None),
-                               ("Sauvegarder mes parties sur le PC…", self.backup_saves),
-                               ("Restaurer des parties…", self.restore_saves),
+                               (_("Sauvegarder mes parties sur le PC…"), self.backup_saves),
+                               (_("Restaurer des parties…"), self.restore_saves),
                                (None, None),
-                               ("Vérifier les BIOS…", self.check_bios),
+                               (_("Vérifier les BIOS…"), self.check_bios),
                                (None, None),
-                               ("Historique et corbeille…", self.show_history)):
+                               (_("Historique et corbeille…"), self.show_history)):
             if label is None:
                 m.add_separator()
             else:
                 m.add_command(label="  " + label, command=command, state="normal" if ready else "disabled")
+        m.add_separator()
+        lang = self._menu()
+        for code, name in i18n.LANGUAGES.items():
+            lang.add_command(label=("  ✓ " if code == i18n.LANG else "     ") + name,
+                             command=lambda c=code: self.change_language(c))
+        m.add_cascade(label="  " + _("Langue") + " / Language", menu=lang)
         m.tk_popup(widget.winfo_rootx(), widget.winfo_rooty() + widget.winfo_height())
 
     def show_context_menu(self, event):
@@ -59,21 +72,37 @@ class ToolsMixin:
         one = len(games) == 1
         m = self._menu()
         if one:
-            m.add_command(label="  Ouvrir le dossier", command=self.open_folder)
-            m.add_command(label="  Modifier la fiche…", command=self.edit_selected)
+            m.add_command(label="  " + _("Ouvrir le dossier"), command=self.open_folder)
+            m.add_command(label="  " + _("Modifier la fiche…"), command=self.edit_selected)
         fav = all(g.favorite for g in games)
-        m.add_command(label="  Retirer des favoris" if fav else "  Ajouter aux favoris",
+        m.add_command(label="  " + (_("Retirer des favoris") if fav else _("Ajouter aux favoris")),
                       command=lambda: self.toggle_favorites(games))
-        m.add_command(label="  Compléter la fiche depuis internet", command=lambda: self.enrich_games(games))
+        m.add_command(label="  " + _("Compléter la fiche depuis internet"), command=lambda: self.enrich_games(games))
         move = self._menu()
         current = {g.system for g in games}
         for s in sorted(core.list_systems(self.root_path), key=lambda k: systems.name(k).lower()):
             if s not in current:
                 move.add_command(label=f"  {systems.name(s)}  ({s})", command=lambda s=s: self.move_games(games, s))
-        m.add_cascade(label="  Déplacer vers", menu=move)
+        m.add_cascade(label="  " + _("Déplacer vers"), menu=move)
         m.add_separator()
-        m.add_command(label="  Supprimer…", command=self.delete_selected)
+        m.add_command(label="  " + _("Supprimer…"), command=self.delete_selected)
         m.tk_popup(event.x_root, event.y_root)
+
+    def change_language(self, code):
+        """Change la langue : elle s'applique au prochain démarrage (proposé tout de suite)."""
+        if code == i18n.LANG:
+            return
+        settings.set("language", code)
+        self.save_settings()
+        i18n.set_language(code)  # pour que la question soit posée dans la nouvelle langue
+        if _dialog(self, _("Langue"), _("La langue sera changée au redémarrage du programme."), "",
+                   [(_("PLUS TARD"), "normal", False), (_("REDÉMARRER"), "normal", True)], T.CYAN, "menu"):
+            self.restart()
+
+    def restart(self):
+        args = [sys.executable] if paths.FROZEN else [sys.executable, os.path.abspath(sys.argv[0])]
+        subprocess.Popen(args)
+        self.quit_app()
 
     # ------------------------------------------------------------ utilitaires
     def reload_systems(self, names):
@@ -88,9 +117,9 @@ class ToolsMixin:
         self.fill_systems(self.current)
         self.refresh_usage()
 
-    def _errors(self, errors, what="Certaines opérations ont échoué :"):
+    def _errors(self, errors, what=None):
         if errors:
-            info(self, "Erreurs", what, "\n".join(errors[:30]))
+            info(self, _("Erreurs"), what or _("Certaines opérations ont échoué :"), "\n".join(errors[:30]))
 
     # ------------------------------------------------------------ fiche / déplacement
     def edit_selected(self):
@@ -101,7 +130,7 @@ class ToolsMixin:
         if values is None:
             return
         images = values.pop("images", {})
-        with journal.operation(self.root_path, f"Fiche modifiée : {g.name}"):
+        with journal.operation(self.root_path, _("Fiche modifiée : {name}", name=g.name)):
             errors = core.set_info(self.root_path, g, values)
             for tag, data in images.items():
                 errors += scraper.set_image(self.root_path, g, tag, data, self.games.get(g.system, []))
@@ -111,7 +140,7 @@ class ToolsMixin:
             self.refresh_usage()
         self.fill_games(keep_scroll=True)
         self.set_selection([g])
-        self.flash("Fiche enregistrée", T.GREEN)
+        self.flash(_("Fiche enregistrée"), T.GREEN)
         self._errors(errors)
 
     def move_games(self, games, target):
@@ -123,30 +152,30 @@ class ToolsMixin:
             for i, g in enumerate(games):
                 if cancel.is_set():
                     break
-                report(i, f"Déplacement : {g.name}")
+                report(i, _("Déplacement : {name}", name=g.name))
                 errors += core.move_game(root, g, target, self.games.get(g.system, []))
             return errors
 
         def done(errors):
             self.reload_systems(sources | {target})
-            self.flash(f"{len(games)} jeu{'x' if len(games) > 1 else ''} déplacé{'s' if len(games) > 1 else ''}"
-                       f" vers {systems.name(target)}", T.GREEN)
+            self.flash(_n(len(games), "{n} jeu déplacé vers {system}", "{n} jeux déplacés vers {system}",
+                          system=systems.name(target)), T.GREEN)
             self._errors(errors)
 
-        self.run_in_background("Déplacement", "move", len(games), work, done,
-                               f"Déplacement vers {systems.name(target)}")
+        self.run_in_background(_("Déplacement"), "move", len(games), work, done,
+                               _("Déplacement vers {system}", system=systems.name(target)))
 
     # ------------------------------------------------------------ ajout de jeux
-    def add_games(self, paths=None):
+    def add_games(self, files=None):
         if not self.root_path:
             return
-        if paths is None:
-            paths = filedialog.askopenfilenames(parent=self, title="Choisir des jeux à ajouter")
-            if not paths:
+        if files is None:
+            files = filedialog.askopenfilenames(parent=self, title=_("Choisir des jeux à ajouter"))
+            if not files:
                 return
-        files = importer.expand(paths)
+        files = importer.expand(files)
         if not files:
-            info(self, "Ajouter des jeux", "Aucun jeu reconnu dans ce qui a été déposé.")
+            info(self, _("Ajouter des jeux"), _("Aucun jeu reconnu dans ce qui a été déposé."))
             return
         available = core.list_systems(self.root_path)
         current = self.current if self.current in available else None
@@ -163,17 +192,16 @@ class ToolsMixin:
 
         def done(result):
             copied, errors = result
-            self.reload_systems({s for _, s in items})
-            self.flash(f"{len(copied)} jeu{'x' if len(copied) > 1 else ''} ajouté{'s' if len(copied) > 1 else ''}",
-                       T.GREEN)
-            self._errors(errors, "Certains jeux n'ont pas été ajoutés :")
+            self.reload_systems({s for _f, s in items})
+            self.flash(_n(len(copied), "{n} jeu ajouté", "{n} jeux ajoutés"), T.GREEN)
+            self._errors(errors, _("Certains jeux n'ont pas été ajoutés :"))
             if scrape and copied:
                 new = {os.path.normcase(p) for p in copied}
                 fresh = [g for lst in self.games.values() for g in lst if os.path.normcase(g.path) in new]
                 self.enrich_games(fresh)
 
-        self.run_in_background("Ajout de jeux", "plus", len(items), work, done,
-                               f"Ajout de {len(items)} jeu{'x' if len(items) > 1 else ''}")
+        self.run_in_background(_("Ajout de jeux"), "plus", len(items), work, done,
+                               _n(len(items), "Ajout de {n} jeu", "Ajout de {n} jeux"))
 
     def on_drop(self, event):
         self.add_games(self.tk.splitlist(event.data))
@@ -184,7 +212,7 @@ class ToolsMixin:
         depuis internet. Un jeu introuvable ou une source muette n'arrête jamais la suite."""
         games = [g for g in games if metadata.missing_fields(g) or not core.cover_for(g)]
         if not games:
-            self.flash("Ces fiches sont déjà complètes", T.GREEN)
+            self.flash(_("Ces fiches sont déjà complètes"), T.GREEN)
             return
         root = self.root_path
 
@@ -193,7 +221,7 @@ class ToolsMixin:
             for i, g in enumerate(games):
                 if cancel.is_set():
                     break
-                report(i, f"Recherche : {g.name}")
+                report(i, _("Recherche : {name}", name=g.name))
                 values = metadata.lookup(g)  # ne lève jamais
                 images = {}
                 if not core.cover_for(g) and scraper.supported(g.system):
@@ -209,7 +237,7 @@ class ToolsMixin:
                     done += 1
                 else:
                     empty.append(g.name)
-            report(len(games), "Mise à jour des gamelist.xml…")
+            report(len(games), _("Mise à jour des gamelist.xml…"))
             core.set_media(root, media)
             return done, empty
 
@@ -219,29 +247,29 @@ class ToolsMixin:
                 self.grid_view.thumbs.cache.pop(g.path, None)
             self.fill_games(keep_scroll=True)
             self.refresh_usage()
-            text = f"{done} fiche{'s' if done > 1 else ''} complétée{'s' if done > 1 else ''}"
+            text = _n(done, "{n} fiche complétée", "{n} fiches complétées")
             if empty:
-                text += f"  ·  rien trouvé pour {len(empty)} jeu{'x' if len(empty) > 1 else ''}"
+                text += "  ·  " + _n(len(empty), "rien trouvé pour {n} jeu", "rien trouvé pour {n} jeux")
             self.flash(text, T.GREEN)
 
-        self.run_in_background("Fiches depuis internet", "download", len(games), work, finished,
-                               f"Fiches complétées ({len(games)} jeu{'x' if len(games) > 1 else ''})")
+        self.run_in_background(_("Fiches depuis internet"), "download", len(games), work, finished,
+                               _n(len(games), "Fiches complétées ({n} jeu)", "Fiches complétées ({n} jeux)"))
 
     def complete_cards(self):
         games = metadata.incomplete([g for lst in self.games.values() for g in lst])
         if not games:
-            info(self, "Fiches", "Toutes les fiches ont une description, une année, un genre et une image.")
+            info(self, _("Fiches"), _("Toutes les fiches ont une description, une année, un genre et une image."))
             return
-        labels = {"desc": "description", "year": "année", "genre": "genre"}
+        labels = {"desc": _("description"), "year": _("année"), "genre": _("genre")}
 
         def detail(g):
             missing = [labels[k] for k in ("desc", "year", "genre") if k in metadata.missing_fields(g)]
-            return "manque : " + ", ".join(missing + ([] if core.cover_for(g) else ["image"]))
+            return _("manque : {list}", list=", ".join(missing + ([] if core.cover_for(g) else [_("image")])))
         items = [(g.name, detail(g), True, None) for g in games]
-        chosen = ChecklistDialog(self, "Compléter les fiches", "download",
-                                 "Cherche sur internet (base libretro, Wikidata, Wikipédia, images libretro) ce qui "
-                                 "manque à ces fiches. Rien n'est écrasé. Compter quelques secondes par jeu ; "
-                                 "un jeu introuvable est simplement passé.", items, "COMPLÉTER").show()
+        chosen = ChecklistDialog(self, _("Compléter les fiches"), "download",
+                                 _("Cherche sur internet (base libretro, Wikidata, Wikipédia, images libretro) ce qui "
+                                   "manque à ces fiches. Rien n'est écrasé. Compter quelques secondes par jeu ; "
+                                   "un jeu introuvable est simplement passé."), items, _("COMPLÉTER")).show()
         if chosen:
             self.enrich_games([games[i] for i in chosen])
 
@@ -249,14 +277,15 @@ class ToolsMixin:
     def group_multidisc(self):
         groups = multidisc.find_groups(self.games)
         if not groups:
-            info(self, "Multi-disques", "Aucun jeu en plusieurs disques à regrouper.")
+            info(self, _("Multi-disques"), _("Aucun jeu en plusieurs disques à regrouper."))
             return
-        items = [(f"{gr.name}", f"{systems.name(gr.system)} · {len(gr.discs)} disques", True, None) for gr in groups]
-        chosen = ChecklistDialog(self, "Jeux multi-disques", "disc",
-                                 "Chaque jeu sélectionné n'apparaîtra plus qu'une seule fois sur la console. "
-                                 "Les disques sont rangés dans un dossier caché « .multidisc » et on change "
-                                 "de disque depuis le menu RetroArch (Hotkey + X → Contrôle du disque).",
-                                 items, "REGROUPER").show()
+        items = [(gr.name, f"{systems.name(gr.system)} · " + _n(len(gr.discs), "{n} disque", "{n} disques"),
+                  True, None) for gr in groups]
+        chosen = ChecklistDialog(self, _("Jeux multi-disques"), "disc",
+                                 _("Chaque jeu sélectionné n'apparaîtra plus qu'une seule fois sur la console. "
+                                   "Les disques sont rangés dans un dossier caché « .multidisc » et on change "
+                                   "de disque depuis le menu RetroArch (Hotkey + X → Contrôle du disque)."),
+                                 items, _("REGROUPER")).show()
         if not chosen:
             return
         root, picked = self.root_path, [groups[i] for i in chosen]
@@ -266,17 +295,16 @@ class ToolsMixin:
             for i, gr in enumerate(picked):
                 if cancel.is_set():
                     break
-                report(i, f"Regroupement : {gr.name}")
+                report(i, _("Regroupement : {name}", name=gr.name))
                 errors += multidisc.create_m3u(root, gr)[1]
             return errors
 
         def done(errors):
             self.reload_systems({gr.system for gr in picked})
-            self.flash(f"{len(picked)} jeu{'x' if len(picked) > 1 else ''} regroupé{'s' if len(picked) > 1 else ''}",
-                       T.GREEN)
+            self.flash(_n(len(picked), "{n} jeu regroupé", "{n} jeux regroupés"), T.GREEN)
             self._errors(errors)
 
-        self.run_in_background("Multi-disques", "disc", len(picked), work, done, "Regroupement multi-disques")
+        self.run_in_background(_("Multi-disques"), "disc", len(picked), work, done, _("Regroupement multi-disques"))
 
     # ------------------------------------------------------------ vidéos
     def delete_videos_tool(self):
@@ -284,15 +312,15 @@ class ToolsMixin:
         per_system = {s: core.video_files(root, s) for s in core.list_systems(root)}
         per_system = {s: v for s, v in per_system.items() if v}
         if not per_system:
-            info(self, "Vidéos", "Il n'y a aucune vidéo de présentation sur la carte.")
+            info(self, _("Vidéos"), _("Il n'y a aucune vidéo de présentation sur la carte."))
             return
         names = sorted(per_system, key=lambda k: systems.name(k).lower())
-        items = [(systems.name(s), f"{len(per_system[s])} vidéos", False,
+        items = [(systems.name(s), _n(len(per_system[s]), "{n} vidéo", "{n} vidéos"), False,
                   sum(core.path_size(p) for p in per_system[s])) for s in names]
-        chosen = ChecklistDialog(self, "Supprimer des vidéos", "film",
-                                 "Les vidéos de présentation ne servent qu'à l'aperçu dans la liste des jeux. "
-                                 "Les jeux, images et sauvegardes ne sont pas touchés.",
-                                 items, "SUPPRIMER", "danger").show()
+        chosen = ChecklistDialog(self, _("Supprimer des vidéos"), "film",
+                                 _("Les vidéos de présentation ne servent qu'à l'aperçu dans la liste des jeux. "
+                                   "Les jeux, images et sauvegardes ne sont pas touchés."),
+                                 items, _("SUPPRIMER"), "danger").show()
         if not chosen:
             return
         picked = [names[i] for i in chosen]
@@ -303,35 +331,37 @@ class ToolsMixin:
             for i, s in enumerate(picked):
                 if cancel.is_set():
                     break
-                report(i, f"Vidéos : {systems.name(s)}")
+                report(i, _("Vidéos : {system}", system=systems.name(s)))
                 errors += core.delete_videos(root, s, self.games.get(s, []))
             return errors
 
         def done(errors):
             self.refresh_usage()
             self.show_details()
-            self.flash(f"Vidéos supprimées  ·  {human(size)} dans la corbeille", T.GREEN)
+            self.flash(_("Vidéos supprimées") + "  ·  " + _("{size} dans la corbeille", size=human(size)), T.GREEN)
             self._errors(errors)
 
-        self.run_in_background("Suppression des vidéos", "film", len(picked), work, done,
-                               "Suppression des vidéos")
+        self.run_in_background(_("Suppression des vidéos"), "film", len(picked), work, done,
+                               _("Suppression des vidéos"))
 
     # ------------------------------------------------------------ compression CHD
     def compress_chd(self):
         games = chd.convertible(self.games)
         if not games:
-            info(self, "Compression CHD", "Aucun jeu CD au format .cue / .gdi à compresser.")
+            info(self, _("Compression CHD"), _("Aucun jeu CD au format .cue / .gdi à compresser."))
             return
+
         def label(g):
             disc = core.DISC_RE.search(g.stem)
-            return g.name + (f"  (disque {disc.group(1)})" if disc and not core.DISC_RE.search(g.name) else "")
+            return g.name + (_("  (disque {n})", n=disc.group(1)) if disc and not core.DISC_RE.search(g.name)
+                             else "")
         items = [(label(g), systems.name(g.system), False, g.size) for g in games]
-        note = "" if chd.find_chdman() else ("L'outil chdman (MAME) sera téléchargé automatiquement "
+        note = "" if chd.find_chdman() else _("L'outil chdman (MAME) sera téléchargé automatiquement "
                                               "la première fois (≈ 85 Mo).")
-        chosen = ChecklistDialog(self, "Compression CHD", "compress",
-                                 "Compresse les jeux CD sans perte au format .chd, lu directement par la console : "
-                                 "on gagne souvent 30 à 60 % de place. Compter environ une minute par jeu. "
-                                 "Les sauvegardes restent valables.", items, "COMPRESSER", note=note).show()
+        chosen = ChecklistDialog(self, _("Compression CHD"), "compress",
+                                 _("Compresse les jeux CD sans perte au format .chd, lu directement par la console : "
+                                   "on gagne souvent 30 à 60 % de place. Compter environ une minute par jeu. "
+                                   "Les sauvegardes restent valables."), items, _("COMPRESSER"), note=note).show()
         if not chosen:
             return
         picked = [games[i] for i in chosen]
@@ -344,7 +374,7 @@ class ToolsMixin:
             for i, g in enumerate(picked):
                 if cancel.is_set():
                     break
-                report(i, f"Compression : {g.name}")
+                report(i, _("Compression : {name}", name=g.name))
                 try:
                     errors += chd.convert_game(root, tool, g, cancel)
                 except OSError as e:
@@ -353,76 +383,80 @@ class ToolsMixin:
 
         def done(errors):
             self.reload_systems({g.system for g in picked})
-            self.flash(f"Compression terminée  ·  {human(before)} compressés", T.GREEN)
-            self._errors(errors, "Certains jeux n'ont pas pu être compressés :")
+            self.flash(_("Compression terminée") + "  ·  " + _("{size} compressés", size=human(before)), T.GREEN)
+            self._errors(errors, _("Certains jeux n'ont pas pu être compressés :"))
 
-        self.run_in_background("Compression CHD", "compress", len(picked), work, done, "Compression CHD")
+        self.run_in_background(_("Compression CHD"), "compress", len(picked), work, done, _("Compression CHD"))
 
     # ------------------------------------------------------------ sauvegardes
     def backup_saves(self):
         files = saves.collect(self.root_path)
         if not files:
-            info(self, "Sauvegardes", "Aucune sauvegarde trouvée sur la carte.")
+            info(self, _("Sauvegardes"), _("Aucune sauvegarde trouvée sur la carte."))
             return
-        name = f"R36S-sauvegardes-{datetime.date.today():%Y-%m-%d}.zip"
-        dest = filedialog.asksaveasfilename(parent=self, title="Enregistrer les sauvegardes", initialfile=name,
-                                            defaultextension=".zip", filetypes=[("Archive zip", "*.zip")])
+        name = f"R36S-{_('sauvegardes')}-{datetime.date.today():%Y-%m-%d}.zip"
+        dest = filedialog.asksaveasfilename(parent=self, title=_("Enregistrer les sauvegardes"), initialfile=name,
+                                            defaultextension=".zip", filetypes=[(_("Archive zip"), "*.zip")])
         if not dest:
             return
         root = self.root_path
 
         def done(count):
-            self.flash(f"{count} sauvegardes copiées dans {os.path.basename(dest)}", T.GREEN)
-            info(self, "Sauvegardes", f"{count} fichiers de sauvegarde ont été copiés dans :\n{dest}")
+            self.flash(_n(count, "{n} sauvegarde copiée dans {file}", "{n} sauvegardes copiées dans {file}",
+                          file=os.path.basename(dest)), T.GREEN)
+            info(self, _("Sauvegardes"), _n(count, "{n} fichier de sauvegarde a été copié dans :\n{file}",
+                                            "{n} fichiers de sauvegarde ont été copiés dans :\n{file}", file=dest))
 
-        self.run_in_background("Sauvegarde des parties", "save", len(files),
+        self.run_in_background(_("Sauvegarde des parties"), "save", len(files),
                                lambda report, cancel: saves.backup(root, files, dest, report, cancel), done)
 
     def restore_saves(self):
-        src = filedialog.askopenfilename(parent=self, title="Choisir une sauvegarde à restaurer",
-                                         filetypes=[("Archive zip", "*.zip")])
+        src = filedialog.askopenfilename(parent=self, title=_("Choisir une sauvegarde à restaurer"),
+                                         filetypes=[(_("Archive zip"), "*.zip")])
         if not src:
             return
-        choice = _dialog(self, "Restaurer", "Que faire si une sauvegarde existe déjà sur la carte ?", "",
-                         [("ANNULER", "normal", None), ("GARDER CELLE DE LA CARTE", "normal", False),
-                          ("REMPLACER", "danger", True)], T.YELLOW, "save")
+        choice = _dialog(self, _("Restaurer"), _("Que faire si une sauvegarde existe déjà sur la carte ?"), "",
+                         [(_("ANNULER"), "normal", None), (_("GARDER CELLE DE LA CARTE"), "normal", False),
+                          (_("REMPLACER"), "danger", True)], T.YELLOW, "save")
         if choice is None:
             return
         root = self.root_path
 
         def done(result):
             restored, skipped = result
-            self.flash(f"{restored} sauvegardes restaurées", T.GREEN)
-            info(self, "Restauration", f"{restored} sauvegardes restaurées, {skipped} ignorées.")
+            self.flash(_n(restored, "{n} sauvegarde restaurée", "{n} sauvegardes restaurées"), T.GREEN)
+            info(self, _("Restauration"), _n(restored, "{n} sauvegarde restaurée, {skipped} ignorée(s).",
+                                             "{n} sauvegardes restaurées, {skipped} ignorée(s).", skipped=skipped))
 
-        self.run_in_background("Restauration", "save", saves.zip_count(src),
+        self.run_in_background(_("Restauration"), "save", saves.zip_count(src),
                                lambda report, cancel: saves.restore(root, src, choice, report, cancel), done,
-                               "Restauration des parties")
+                               _("Restauration des parties"))
 
     # ------------------------------------------------------------ annulation / corbeille
     def refresh_history(self):
         """Met à jour le bouton « annuler » (activé s'il y a une opération à défaire)."""
         hist = journal.history(self.root_path) if self.root_path else []
         self.btn_undo.set_enabled(bool(hist))
-        self.undo_tip.text = f"Annuler : {hist[0][1]}" if hist else "Rien à annuler"
+        self.undo_tip.text = _("Annuler : {label}", label=hist[0][1]) if hist else _("Rien à annuler")
 
     def undo_last(self):
         hist = journal.history(self.root_path) if self.root_path else []
         if not hist:
             return
-        op_id, label, date, _ = hist[0]
-        if not _dialog(self, "Annuler", f"Défaire « {label} » ({date[8:10]}/{date[5:7]} à {date[11:16]}) ?\n"
-                                        "Les fichiers et les fiches reviennent comme avant cette opération.", "",
-                       [("NON", "normal", False), ("ANNULER L'OPÉRATION", "danger", True)], T.YELLOW, "undo"):
+        op_id, label, date, _size = hist[0]
+        when = f"{date[8:10]}/{date[5:7]} {date[11:16]}"
+        if not _dialog(self, _("Annuler"), _("Défaire « {label} » ({when}) ?", label=label, when=when) + "\n"
+                       + _("Les fichiers et les fiches reviennent comme avant cette opération."), "",
+                       [(_("NON"), "normal", False), (_("ANNULER L'OPÉRATION"), "danger", True)], T.YELLOW, "undo"):
             return
         root = self.root_path
 
         def done(errors):
             self.load_drive()  # tout est relu depuis la carte
-            self.flash(f"Opération annulée : {label}", T.GREEN)
-            self._errors(errors, "Certains éléments n'ont pas pu être remis en place :")
+            self.flash(_("Opération annulée : {label}", label=label), T.GREEN)
+            self._errors(errors, _("Certains éléments n'ont pas pu être remis en place :"))
 
-        self.run_in_background("Annulation", "undo", None, lambda report, cancel: journal.undo(root, op_id), done)
+        self.run_in_background(_("Annulation"), "undo", None, lambda report, cancel: journal.undo(root, op_id), done)
 
     def show_history(self):
         root = self.root_path
@@ -431,21 +465,21 @@ class ToolsMixin:
             self.undo_last()
         elif choice == "empty":
             size = journal.trash_size(root)
-            if _dialog(self, "Vider la corbeille", f"{human(size)} seront libérés sur la carte.\n"
-                       "Les opérations passées ne pourront plus être annulées.", "",
-                       [("NON", "normal", False), ("VIDER", "danger", True)], T.RED, "trash"):
-                def done(_):
+            if _dialog(self, _("Vider la corbeille"), _("{size} seront libérés sur la carte.", size=human(size))
+                       + "\n" + _("Les opérations passées ne pourront plus être annulées."), "",
+                       [(_("NON"), "normal", False), (_("VIDER"), "danger", True)], T.RED, "trash"):
+                def done(_result):
                     self.refresh_history()
                     self.refresh_usage()
-                    self.flash(f"Corbeille vidée  ·  {human(size)} libérés", T.GREEN)
-                self.run_in_background("Corbeille", "trash", None,
+                    self.flash(_("Corbeille vidée") + "  ·  " + _("{size} libérés", size=human(size)), T.GREEN)
+                self.run_in_background(_("Corbeille"), "trash", None,
                                        lambda report, cancel: journal.empty_trash(root), done)
 
     # ------------------------------------------------------------ BIOS
     def check_bios(self):
         results = bios.check(self.root_path, list(self.games))
         if not results:
-            info(self, "BIOS", "Aucune de tes consoles n'a besoin de BIOS.")
+            info(self, _("BIOS"), _("Aucune de tes consoles n'a besoin de BIOS."))
             return
         lines, last, missing = [], None, 0
         for system, desc, level, found, names in results:
@@ -453,13 +487,15 @@ class ToolsMixin:
                 lines.append((systems.name(system).upper(), "head"))
                 last = system
             if found:
-                lines.append((f"  ✓  {desc} : {found}", "ok"))
+                lines.append((f"  ✓  {_(desc)} : {found}", "ok"))
             else:
                 bad = level == bios.REQUIRED
                 missing += bad
-                lines.append((f"  {'✗' if bad else '~'}  {desc} ({level}) : manquant", "bad" if bad else "warn"))
-                lines.append((f"       un de ces fichiers dans bios/ : {', '.join(names[:4])}", "muted"))
-        intro = ("Tout est en ordre pour tes consoles." if not missing else
-                 f"{missing} BIOS requis manquant{'s' if missing > 1 else ''} : les jeux de ces consoles risquent "
-                 "de ne pas démarrer.")
-        ReportDialog(self, "Vérification des BIOS", "chip", intro, lines).show()
+                lines.append((f"  {'✗' if bad else '~'}  {_(desc)} ({_(level)}) : " + _("manquant"),
+                              "bad" if bad else "warn"))
+                lines.append(("       " + _("un de ces fichiers dans bios/ : {files}", files=", ".join(names[:4])),
+                              "muted"))
+        intro = (_("Tout est en ordre pour tes consoles.") if not missing else
+                 _n(missing, "{n} BIOS requis manquant : les jeux de ces consoles risquent de ne pas démarrer.",
+                    "{n} BIOS requis manquants : les jeux de ces consoles risquent de ne pas démarrer."))
+        ReportDialog(self, _("Vérification des BIOS"), "chip", intro, lines).show()
