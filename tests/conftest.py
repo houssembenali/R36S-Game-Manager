@@ -32,6 +32,17 @@ def gamelist(*games):
     return '<?xml version="1.0"?>\n<gameList>\n' + "\n".join(games) + "\n</gameList>\n"
 
 
+@pytest.fixture(autouse=True)
+def french():
+    """Les tests attendent les textes français, quelle que soit la langue choisie sur ce PC
+    (anglais par défaut, comme sur les machines de GitHub)."""
+    import i18n
+    old = i18n.LANG
+    i18n.set_language("fr")
+    yield
+    i18n.set_language(old)
+
+
 @pytest.fixture
 def card(tmp_path):
     root = str(tmp_path / "EASYROMS")

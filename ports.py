@@ -233,7 +233,7 @@ _RUNTIME_RE = re.compile(r"""^\s*runtime=["']?([\w.+-]+?)["']?\s*$""", re.M)
 def _script_texts(root):
     """Contenu (en minuscules) des scripts .sh des ports présents."""
     texts = []
-    for name in _scripts(root):
+    for name in _scripts(root).values():
         try:
             with open(os.path.join(ports_folder(root), name), encoding="utf-8", errors="replace") as f:
                 texts.append(f.read().lower())
@@ -312,11 +312,12 @@ def ports_folder(root):
 
 
 def _scripts(root):
-    """Noms (minuscules) des scripts .sh présents dans ports/."""
+    """{nom en minuscules: vrai nom} des scripts .sh présents dans ports/ (le vrai nom sert à les ouvrir :
+    Linux distingue majuscules et minuscules)."""
     try:
-        return {n.lower() for n in os.listdir(ports_folder(root)) if n.lower().endswith(".sh")}
+        return {n.lower(): n for n in os.listdir(ports_folder(root)) if n.lower().endswith(".sh")}
     except OSError:
-        return set()
+        return {}
 
 
 def installed(root):
